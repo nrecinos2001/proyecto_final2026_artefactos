@@ -4,6 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 
+// Requiere la infraestructura levantada: docker compose up -d
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
 
@@ -16,10 +17,16 @@ describe('AppController (e2e)', () => {
     await app.init();
   });
 
-  it('/ (GET)', () => {
+  afterEach(async () => {
+    await app.close();
+  });
+
+  it('/health (GET)', () => {
     return request(app.getHttpServer())
-      .get('/')
+      .get('/health')
       .expect(200)
-      .expect('Hello World!');
+      .expect((res) =>
+        expect((res.body as { status: string }).status).toBe('ok'),
+      );
   });
 });

@@ -1,0 +1,40 @@
+# Servicios de infraestructura para desarrollo local.
+#   docker compose up -d
+# - Mosquitto (broker MQTT): 1883 (TCP, lo usa el ESP8266 y el backend) y 9001 (WebSockets)
+# - PostgreSQL: expuesto en el puerto 5433 del host para no chocar con otra instancia local
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: cisterna_mosquitto
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+      - "${MQTT_WS_PORT:-9001}:9001"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: cisterna_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-cisterna}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-cisterna}
+      POSTGRES_DB: ${DB_NAME:-cisterna}
+      TZ: America/El_Salvador
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cisterna} -d ${DB_NAME:-cisterna}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  postgres_data:

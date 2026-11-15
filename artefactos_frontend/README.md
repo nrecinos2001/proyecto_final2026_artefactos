@@ -1,36 +1,29 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend — Monitor de Cisterna
 
-## Getting Started
-
-First, run the development server:
+Plataforma web en Next.js 16 (App Router). Consume la API del backend por REST
+y recibe los cambios en vivo por Server-Sent Events. Ver el
+[README principal](../README.md).
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local   # NEXT_PUBLIC_API_URL=http://localhost:3001/api
+npm install
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Pantallas
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Ruta | Contenido |
+|---|---|
+| `/` | Cisternas con su nivel en vivo; alta de cisternas |
+| `/cisternas/[id]` | Tablero: tanque, litros, tiempo restante, calidad del agua, historial, perfil por hora, simulador |
+| `/cisternas/[id]/configuracion` | Geometría, umbrales, turbidez, tabla de calibración, mantenimiento |
+| `/alertas` | Historial de alertas |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Las alertas nuevas aparecen como aviso en pantalla y, si el usuario lo permite,
+como notificación del navegador.
 
-## Learn More
+## Estructura
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `lib/api.ts`: tipos y cliente de la API, suscripción SSE.
+- `lib/use-device-live.ts`: estado en vivo de una cisterna.
+- `components/`: tablero, gráficas (SVG propio, sin dependencias), formularios.

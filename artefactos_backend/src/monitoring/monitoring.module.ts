@@ -1,0 +1,29 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { DevicesModule } from '../devices/devices.module';
+import {
+  Alert,
+  HourlyProfile,
+  LevelReading,
+  TurbidityReading,
+} from '../entities';
+import { AlertsService } from './alerts.service';
+import { IngestionService } from './ingestion.service';
+import { MonitoringController } from './monitoring.controller';
+import { ProfileService } from './profile.service';
+import { StatusService } from './status.service';
+
+@Module({
+  imports: [
+    DevicesModule,
+    TypeOrmModule.forFeature([
+      Alert,
+      HourlyProfile,
+      LevelReading,
+      TurbidityReading,
+    ]),
+  ],
+  controllers: [MonitoringController],
+  providers: [AlertsService, ProfileService, StatusService, IngestionService],
+})
+export class MonitoringModule {}
