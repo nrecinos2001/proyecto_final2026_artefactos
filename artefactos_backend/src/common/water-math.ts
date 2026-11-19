@@ -373,3 +373,20 @@ export function pendingDateKeys(
   }
   return keys;
 }
+
+export type TurbidityVerdict = 'turbia' | 'limpia';
+
+export function turbidityVerdict(
+  voltages: number[],
+  referenceVoltage: number,
+  thresholdRatio: number,
+  required: number,
+): TurbidityVerdict | null {
+  if (voltages.length < required) return null;
+  const ratios = voltages
+    .slice(0, required)
+    .map((voltage) => voltage / referenceVoltage);
+  if (ratios.every((ratio) => ratio < thresholdRatio)) return 'turbia';
+  if (ratios.every((ratio) => ratio >= thresholdRatio)) return 'limpia';
+  return null;
+}

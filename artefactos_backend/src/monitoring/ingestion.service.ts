@@ -13,7 +13,7 @@ import {
   parseStatusPayload,
   parseTurbidityPayload,
 } from '../common/payload';
-import { distanceToLiters } from '../common/water-math';
+import { distanceToLiters, turbidityVerdict } from '../common/water-math';
 import { DevicesService } from '../devices/devices.service';
 import {
   Device,
@@ -255,23 +255,35 @@ export class IngestionService implements OnModuleInit {
 
   /** Aviso si las últimas N lecturas válidas están por debajo del umbral */
   private async evaluateTurbidity(device: Device) {
-    const n = device.turbidityConsecutive;
+    const reference = device.turbidityReferenceVoltage;
+    if (!reference) return;
     const lastValid = await this.turbidity.find({
-      where: { deviceId: device.id, valid: true },
+      where: {
+        deviceId: device.id,
+        valid: true,
+        ...(device.lastCleanedAt
+          ? { createdAt: MoreThanOrEqual(device.lastCleanedAt) }
+          : {}),
+      },
       order: { createdAt: 'DESC' },
-      take: n,
+      take: device.turbidityConsecutive,
     });
-    if (lastValid.length < n || lastValid.some((r) => r.ratio === null)) return;
+    const verdict = turbidityVerdict(
+      lastValid.map((r) => r.voltage),
+      reference,
+      device.turbidityThresholdRatio,
+      device.turbidityConsecutive,
+    );
 
-    const threshold = device.turbidityThresholdRatio;
-    if (lastValid.every((r) => r.ratio! < threshold)) {
+    if (verdict === 'turbia') {
       await this.alerts.raise(
         device.id,
         'TURBIDEZ',
         'warning',
         `Se recomienda limpiar la cisterna ${device.name}: el agua está más turbia que la referencia de agua limpia.`,
       );
-    } else if (lastValid.every((r) => r.ratio! >= threshold)) {
+    }
+    if (verdict === 'limpia') {
       await this.alerts.resolve(device.id, ['TURBIDEZ']);
     }
   }

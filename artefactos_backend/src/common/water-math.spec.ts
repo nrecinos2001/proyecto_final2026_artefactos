@@ -10,6 +10,7 @@ import {
   pendingDateKeys,
   profileFromDays,
   regressionFit,
+  turbidityVerdict,
 } from './water-math';
 
 describe('water-math', () => {
@@ -186,6 +187,21 @@ describe('water-math', () => {
       ]);
       expect(pendingDateKeys(null, '2026-01-01', today)).toHaveLength(30);
       expect(pendingDateKeys(null, null, today)).toEqual([]);
+    });
+  });
+
+  describe('turbidityVerdict', () => {
+    it('tres lecturas bajo el 80 % de la referencia vigente marcan agua turbia', () => {
+      expect(turbidityVerdict([2.0, 1.9, 1.8], 2.8, 0.8, 3)).toBe('turbia');
+    });
+
+    it('lecturas mezcladas o insuficientes no cambian el estado', () => {
+      expect(turbidityVerdict([2.0, 2.8, 1.8], 2.8, 0.8, 3)).toBeNull();
+      expect(turbidityVerdict([2.0, 1.9], 2.8, 0.8, 3)).toBeNull();
+    });
+
+    it('tres lecturas en o sobre el umbral marcan agua limpia', () => {
+      expect(turbidityVerdict([2.24, 2.8, 2.5], 2.8, 0.8, 3)).toBe('limpia');
     });
   });
 
