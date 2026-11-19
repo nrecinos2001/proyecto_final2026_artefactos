@@ -121,11 +121,24 @@ export function consumptionFromSeries(
     if (v < ref - noiseLiters) {
       total += ref - v;
       ref = v;
-    } else if (v > ref) {
+    } else if (v > ref + noiseLiters) {
       ref = v; // está entrando agua: se mueve la referencia sin contar consumo
     }
   }
   return total;
+}
+
+export const NOISE_RATIO = 0.005;
+export const SENSOR_RESOLUTION_CM = 0.3;
+
+export function noiseLitersFor(device: {
+  capacityLiters: number;
+  areaCm2: number;
+}): number {
+  return Math.max(
+    device.capacityLiters * NOISE_RATIO,
+    (device.areaCm2 * SENSOR_RESOLUTION_CM) / 1000,
+  );
 }
 
 /** Paso 3: promedio móvil exponencial C_h = 0.3 x hoy + 0.7 x anterior */

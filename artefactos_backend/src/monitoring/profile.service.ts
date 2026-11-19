@@ -7,12 +7,10 @@ import {
   consumptionFromSeries,
   emaUpdate,
   localDateKey,
+  noiseLitersFor,
 } from '../common/water-math';
 import { DevicesService } from '../devices/devices.service';
 import { Device, HourlyProfile, LevelReading } from '../entities';
-
-/** Ruido ignorado al sumar consumo: 0.5 % de la capacidad */
-const NOISE_RATIO = 0.005;
 
 /**
  * Paso 3: perfil de consumo por hora del día (C_h).
@@ -74,7 +72,7 @@ export class ProfileService implements OnApplicationBootstrap {
       byHour.get(h)!.push(r.liters);
     }
 
-    const noise = device.capacityLiters * NOISE_RATIO;
+    const noise = noiseLitersFor(device);
     const existing = await this.profiles.find({
       where: { deviceId: device.id },
     });

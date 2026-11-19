@@ -4,6 +4,7 @@ import {
   emaUpdate,
   estimateRemaining,
   flowTrend,
+  noiseLitersFor,
   regressionFit,
 } from './water-math';
 
@@ -87,6 +88,21 @@ describe('water-math', () => {
     expect(consumptionFromSeries([100, 99.8, 95, 90, 120, 110], 1)).toBeCloseTo(
       20,
     );
+  });
+
+  it('el nivel quieto con ruido no suma consumo', () => {
+    expect(
+      consumptionFromSeries([1.5, 1.53, 1.47, 1.53, 1.47, 1.5], 0.045),
+    ).toBe(0);
+  });
+
+  it('el umbral de ruido cubre la resolución del sensor', () => {
+    expect(noiseLitersFor({ capacityLiters: 3, areaCm2: 150 })).toBeCloseTo(
+      0.045,
+    );
+    expect(
+      noiseLitersFor({ capacityLiters: 1100, areaCm2: 11_000 }),
+    ).toBeCloseTo(5.5);
   });
 
   it('emaUpdate aplica 0.3 / 0.7', () => {
