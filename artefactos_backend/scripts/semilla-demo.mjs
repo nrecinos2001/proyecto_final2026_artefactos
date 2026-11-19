@@ -1,5 +1,9 @@
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
+const envFile = fileURLToPath(new URL('../.env', import.meta.url));
+if (existsSync(envFile)) process.loadEnvFile(envFile);
 process.env.TZ = process.env.TZ || 'America/El_Salvador';
 
 const args = Object.fromEntries(
@@ -10,7 +14,8 @@ const args = Object.fromEntries(
 );
 const code = args.code ?? 'demo';
 const days = Number(args.dias ?? 3);
-const api = (args.api ?? 'http://localhost:3001/api').replace(/\/$/, '');
+const api = (args.api ?? `http://localhost:${process.env.PORT ?? 3001}/api`).replace(/\/$/, '');
+const replace = args.reemplazar === 'true';
 
 if (!Number.isInteger(days) || days < 1 || days > 30) {
   console.error(`--dias debe ser un entero entre 1 y 30, se recibió ${args.dias}`);
@@ -101,6 +106,20 @@ const client = new pg.Client({
   database: process.env.DB_NAME ?? 'cisterna',
 });
 await client.connect();
+
+const existing = await client.query(
+  'select count(*)::int as n from level_readings where "deviceId" = $1 and "createdAt" >= $2 and "createdAt" < $3',
+  [device.id, firstDay, today],
+);
+if (existing.rows[0].n > 0 && !replace) {
+  await client.end();
+  const lastDay = new Date(today);
+  lastDay.setDate(today.getDate() - 1);
+  console.error(
+    `hay ${existing.rows[0].n} lecturas de ${code} entre ${dateKey(firstDay)} y ${dateKey(lastDay)}; use --reemplazar para borrarlas`,
+  );
+  process.exit(1);
+}
 
 try {
   await client.query('begin');

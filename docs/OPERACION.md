@@ -402,11 +402,15 @@ curl -s -X DELETE $API/devices/$ID/profile
 
 **Probar el modo `perfil` sin esperar 3 días:** la semilla carga tres días
 completos de historial (una lectura por minuto, con picos de consumo de 6:00 a
-7:59 y de 18:00 a 19:59) y los procesa. Se puede repetir sin duplicar:
+7:59 y de 18:00 a 19:59) y los procesa. Lee `DB_PORT` y `PORT` del `.env` del
+backend. Si la cisterna ya tiene lecturas en esos días se detiene sin borrar nada
+(por ejemplo, para no perder las de la validación con cronómetro); con
+`--reemplazar` las sustituye.
 
 ```bash
 cd artefactos_backend
-yarn semilla --code=demo --dias=3 --api=$API
+yarn semilla --code=demo --dias=3
+yarn semilla --code=demo --dias=3 --reemplazar   # borra las lecturas de esos días y las vuelve a generar
 ```
 
 Después repita el paso 2.3: `estimate.method` debe ser `perfil`.
