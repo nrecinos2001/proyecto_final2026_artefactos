@@ -3,7 +3,8 @@ import {
   distanceToLiters,
   emaUpdate,
   estimateRemaining,
-  regressionSlopeLph,
+  flowTrend,
+  regressionFit,
 } from './water-math';
 
 describe('water-math', () => {
@@ -32,7 +33,7 @@ describe('water-math', () => {
     });
   });
 
-  describe('regressionSlopeLph', () => {
+  describe('regressionFit', () => {
     it('obtiene el caudal de una recta perfecta', () => {
       const t0 = Date.UTC(2026, 0, 1);
       // Baja 0.5 L por minuto = -30 L/h
@@ -40,11 +41,45 @@ describe('water-math', () => {
         t: t0 + i * 60_000,
         v: 660 - 0.5 * i,
       }));
-      expect(regressionSlopeLph(pts)).toBeCloseTo(-30);
+      const fit = regressionFit(pts)!;
+      expect(fit.slopeLph).toBeCloseTo(-30);
+      expect(fit.stdErrLph).toBeCloseTo(0);
+      expect(fit.samples).toBe(31);
     });
 
-    it('devuelve null con menos de 3 lecturas', () => {
-      expect(regressionSlopeLph([{ t: 0, v: 1 }])).toBeNull();
+    it('devuelve null con menos de 3 lecturas o con todas a la misma hora', () => {
+      expect(
+        regressionFit([
+          { t: 0, v: 1 },
+          { t: 1, v: 1 },
+        ]),
+      ).toBeNull();
+      expect(
+        regressionFit([
+          { t: 5, v: 1 },
+          { t: 5, v: 2 },
+          { t: 5, v: 3 },
+        ]),
+      ).toBeNull();
+    });
+  });
+
+  describe('flowTrend', () => {
+    it('el ruido con el nivel quieto se considera estable', () => {
+      const pts = Array.from({ length: 24 }, (_, i) => ({
+        t: i * 5_000,
+        v: 1.5 + 0.015 * [0, 1, -1][i % 3],
+      }));
+      expect(flowTrend(regressionFit(pts)!, 3)).toBe('estable');
+    });
+
+    it('un vaciado real en la maqueta se detecta', () => {
+      expect(flowTrend({ slopeLph: -30, stdErrLph: 0.3 }, 3)).toBe('vaciando');
+    });
+
+    it('una recta perfecta usa el umbral del 1 % de la capacidad', () => {
+      expect(flowTrend({ slopeLph: -2, stdErrLph: 0 }, 1100)).toBe('estable');
+      expect(flowTrend({ slopeLph: -30, stdErrLph: 0 }, 1100)).toBe('vaciando');
     });
   });
 
@@ -69,6 +104,7 @@ describe('water-math', () => {
         capacityLiters: 1100,
         reserveLiters: 110,
         flowLph: -30,
+        trend: 'vaciando',
         profile: null,
       });
       expect(e.mode).toBe('vaciando');
@@ -87,6 +123,7 @@ describe('water-math', () => {
         capacityLiters: 1100,
         reserveLiters: 110,
         flowLph: -30,
+        trend: 'vaciando',
         profile,
       });
       // 100 L utilizables: 30 (h1) + 60 (h2) + 10 L a 5 L/h = 2 h → 4 h
@@ -101,23 +138,11 @@ describe('water-math', () => {
         capacityLiters: 1100,
         reserveLiters: 110,
         flowLph: 100,
+        trend: 'llenando',
         profile: null,
       });
       expect(e.mode).toBe('llenando');
       expect(e.hours).toBeCloseTo(5);
-    });
-
-    it('caudal casi cero = estable', () => {
-      const e = estimateRemaining({
-        now,
-        currentLiters: 600,
-        capacityLiters: 1100,
-        reserveLiters: 110,
-        flowLph: -2,
-        profile: null,
-      });
-      expect(e.mode).toBe('estable');
-      expect(e.hours).toBeNull();
     });
   });
 });

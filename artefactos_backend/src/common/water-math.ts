@@ -56,38 +56,53 @@ export interface TimedValue {
   v: number;
 }
 
-/**
- * Paso 2: pendiente por mínimos cuadrados de volumen contra tiempo.
- * Devuelve el caudal Q en litros/hora (negativo = vaciando, positivo = llenando)
- * o null si no hay datos suficientes.
- */
-export function regressionSlopeLph(points: TimedValue[]): number | null {
-  if (points.length < 3) return null;
+export interface RegressionFit {
+  slopeLph: number;
+  stdErrLph: number;
+  samples: number;
+}
+
+export function regressionFit(points: TimedValue[]): RegressionFit | null {
+  const n = points.length;
+  if (n < 3) return null;
   const t0 = points[0].t;
-  const xs = points.map((p) => (p.t - t0) / 3_600_000); // horas
+  const xs = points.map((p) => (p.t - t0) / 3_600_000);
   const ys = points.map((p) => p.v);
-  const n = xs.length;
   const meanX = xs.reduce((s, x) => s + x, 0) / n;
   const meanY = ys.reduce((s, y) => s + y, 0) / n;
-  let num = 0;
-  let den = 0;
+  let sxy = 0;
+  let sxx = 0;
   for (let i = 0; i < n; i++) {
-    num += (xs[i] - meanX) * (ys[i] - meanY);
-    den += (xs[i] - meanX) ** 2;
+    sxy += (xs[i] - meanX) * (ys[i] - meanY);
+    sxx += (xs[i] - meanX) ** 2;
   }
-  if (den === 0) return null;
-  return num / den;
+  if (sxx === 0) return null;
+  const slopeLph = sxy / sxx;
+  const intercept = meanY - slopeLph * meanX;
+  const residualSquares = xs.reduce(
+    (s, x, i) => s + (ys[i] - intercept - slopeLph * x) ** 2,
+    0,
+  );
+  const stdErrLph = Math.sqrt(residualSquares / (n - 2) / sxx);
+  return { slopeLph, stdErrLph, samples: n };
 }
 
 /** Caudal por debajo del 1 % de la capacidad por hora se considera "sin consumo" */
 export const STABLE_FLOW_RATIO = 0.01;
+export const SLOPE_SIGNIFICANCE = 3;
 
 export type FlowTrend = 'vaciando' | 'llenando' | 'estable';
 
-export function flowTrend(q: number, capacityLiters: number): FlowTrend {
-  const threshold = capacityLiters * STABLE_FLOW_RATIO;
-  if (q <= -threshold) return 'vaciando';
-  if (q >= threshold) return 'llenando';
+export function flowTrend(
+  fit: Pick<RegressionFit, 'slopeLph' | 'stdErrLph'>,
+  capacityLiters: number,
+): FlowTrend {
+  const threshold = Math.max(
+    capacityLiters * STABLE_FLOW_RATIO,
+    SLOPE_SIGNIFICANCE * fit.stdErrLph,
+  );
+  if (fit.slopeLph <= -threshold) return 'vaciando';
+  if (fit.slopeLph >= threshold) return 'llenando';
   return 'estable';
 }
 
@@ -133,6 +148,7 @@ export interface EstimateInput {
   reserveLiters: number;
   /** Q del paso 2, L/h, con signo */
   flowLph: number;
+  trend: FlowTrend;
   /** C_h por hora local 0..23, o null si todavía no hay perfil */
   profile: number[] | null;
 }
@@ -163,9 +179,9 @@ export function estimateRemaining(input: EstimateInput): Estimate {
     capacityLiters,
     reserveLiters,
     flowLph,
+    trend: mode,
     profile,
   } = input;
-  const mode = flowTrend(flowLph, capacityLiters);
   const result = (
     hours: number | null,
     method: Estimate['method'],
