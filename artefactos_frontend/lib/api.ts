@@ -84,6 +84,10 @@ export interface LevelReading {
   distanceCm: number;
   liters: number;
   percent: number;
+  flowLph: number | null;
+  trend: FlowTrend | null;
+  estimateHours: number | null;
+  estimateMethod: "perfil" | "directo" | null;
   createdAt: string;
 }
 
@@ -243,6 +247,8 @@ export const api = {
   },
   ackAlert: (id: number) =>
     request<Alert>(`/alerts/${id}/ack`, { method: "POST" }),
+  exportUrl: (id: string, tipo: "nivel" | "turbidez", from: Date) =>
+    `${apiUrl()}/devices/${id}/export?tipo=${tipo}&from=${encodeURIComponent(from.toISOString())}`,
 };
 
 export type LiveEvent =

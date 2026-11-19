@@ -180,8 +180,16 @@ export class IngestionService implements OnModuleInit {
 
     if (stateChanged) await this.onLevelStateChange(device, newState, percent);
 
+    const status = await this.emitStatus(device);
+    const estimate: Partial<LevelReading> = {
+      flowLph: status.flow?.litersPerHour ?? null,
+      trend: status.flow?.trend ?? null,
+      estimateHours: status.estimate?.hours ?? null,
+      estimateMethod: status.estimate?.method ?? null,
+    };
+    await this.levels.update(reading.id, estimate);
+    Object.assign(reading, estimate);
     this.events.emit({ type: 'level', deviceId: device.id, data: reading });
-    await this.emitStatus(device);
     return reading;
   }
 

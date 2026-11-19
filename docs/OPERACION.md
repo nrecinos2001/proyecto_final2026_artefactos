@@ -271,6 +271,17 @@ st | jq '{flow, estimate}'
 constante, anote el tiempo estimado, y compárelo con el tiempo real hasta que el
 nivel cruce la reserva.
 
+Cada lectura guarda el caudal, la tendencia y las horas estimadas en ese momento,
+así que el experimento también queda registrado. Con el botón "Descargar CSV" del
+historial (o `GET $API/devices/$ID/export?tipo=nivel&from=<ISO>`) se obtiene
+`fecha_hora,distancia_cm,litros,porcentaje,caudal_lph,tendencia,horas_estimadas,metodo`.
+Para cada fila, la hora estimada de llegada es `fecha_hora + horas_estimadas`; el
+error es la diferencia con la hora real en que `porcentaje` cruzó la reserva. El
+promedio de los errores absolutos es el dato para la sección de resultados del
+documento y del artículo. `tipo=turbidez` exporta
+`fecha_hora,voltaje,raw,valida,razon` para la prueba de agua limpia contra agua
+con tierra.
+
 **Comprobar la fórmula con el ejemplo del documento** (1100 L, 660 L, reserva
 110 L, 30 L/h → 18.3 h). Está cubierto por las pruebas unitarias:
 

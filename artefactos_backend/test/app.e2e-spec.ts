@@ -116,4 +116,42 @@ describe('AppController (e2e)', () => {
 
     await request(server).delete(`/devices/${deviceId}`).expect(204);
   });
+
+  it('cada lectura guarda el caudal y el estimado, y se exporta en CSV', async () => {
+    const server = app.getHttpServer();
+    const created = await request(server)
+      .post('/devices')
+      .send({ code: `e2e-csv-${Date.now()}`, name: 'Prueba CSV' })
+      .expect(201);
+    const deviceId = (created.body as { id: string }).id;
+
+    for (const distance of [8, 9, 10]) {
+      await request(server)
+        .post(`/devices/${deviceId}/simulate`)
+        .send({ kind: 'nivel', value: distance })
+        .expect(201);
+    }
+
+    const readings = await request(server)
+      .get(`/devices/${deviceId}/readings`)
+      .expect(200);
+    const last = (
+      readings.body as { trend: string | null; estimateHours: number | null }[]
+    ).at(-1)!;
+    expect(last.trend).toBe('vaciando');
+    expect(last.estimateHours).not.toBeNull();
+
+    const csv = await request(server)
+      .get(`/devices/${deviceId}/export?tipo=nivel`)
+      .expect(200)
+      .expect('Content-Type', /text\/csv/);
+    const lines = csv.text.trim().split('\n');
+    expect(lines[0]).toBe(
+      'fecha_hora,distancia_cm,litros,porcentaje,caudal_lph,tendencia,horas_estimadas,metodo',
+    );
+    expect(lines).toHaveLength(4);
+    expect(lines[3]).toContain(',vaciando,');
+
+    await request(server).delete(`/devices/${deviceId}`).expect(204);
+  });
 });

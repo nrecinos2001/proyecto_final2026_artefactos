@@ -9,15 +9,19 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import type { Response } from 'express';
 import { Between, Repository } from 'typeorm';
+import { CsvCell, localDateTime, toCsv } from '../common/csv';
 import { localDateKey } from '../common/water-math';
 import { DevicesService } from '../devices/devices.service';
 import { LevelReading, TurbidityReading } from '../entities';
 import { AlertsService } from './alerts.service';
 import {
   AlertsQueryDto,
+  ExportQueryDto,
   ProfileRecomputeDto,
   RangeQueryDto,
   SimulateDto,
@@ -40,6 +44,47 @@ function range(q: RangeQueryDto) {
   const from = q.from ? new Date(q.from) : new Date(to.getTime() - 86_400_000);
   return { from, to, maxPoints: q.maxPoints ?? 500 };
 }
+
+const rounded = (value: number | null, digits: number) =>
+  value === null ? null : Number(value.toFixed(digits));
+
+const LEVEL_CSV_HEADER = [
+  'fecha_hora',
+  'distancia_cm',
+  'litros',
+  'porcentaje',
+  'caudal_lph',
+  'tendencia',
+  'horas_estimadas',
+  'metodo',
+];
+
+const levelCsvRow = (r: LevelReading): CsvCell[] => [
+  localDateTime(r.createdAt),
+  r.distanceCm,
+  rounded(r.liters, 3),
+  rounded(r.percent, 1),
+  rounded(r.flowLph, 3),
+  r.trend,
+  rounded(r.estimateHours, 3),
+  r.estimateMethod,
+];
+
+const TURBIDITY_CSV_HEADER = [
+  'fecha_hora',
+  'voltaje',
+  'raw',
+  'valida',
+  'razon',
+];
+
+const turbidityCsvRow = (r: TurbidityReading): CsvCell[] => [
+  localDateTime(r.createdAt),
+  r.voltage,
+  r.raw,
+  r.valid ? 'si' : 'no',
+  rounded(r.ratio, 3),
+];
 
 @Controller()
 export class MonitoringController {
@@ -87,6 +132,34 @@ export class MonitoringController {
       order: { createdAt: 'ASC' },
     });
     return downsample(rows, maxPoints);
+  }
+
+  @Get('devices/:id/export')
+  async exportCsv(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() q: ExportQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const device = await this.devices.findOne(id);
+    const { from, to } = range(q);
+    const where = { deviceId: id, createdAt: Between(from, to) };
+    const order = { createdAt: 'ASC' as const };
+    const csv =
+      q.tipo === 'nivel'
+        ? toCsv(
+            LEVEL_CSV_HEADER,
+            (await this.levels.find({ where, order })).map(levelCsvRow),
+          )
+        : toCsv(
+            TURBIDITY_CSV_HEADER,
+            (await this.turbidity.find({ where, order })).map(turbidityCsvRow),
+          );
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${device.code}-${q.tipo}.csv"`,
+    );
+    return csv;
   }
 
   /** Botón "Cisterna limpia" */
