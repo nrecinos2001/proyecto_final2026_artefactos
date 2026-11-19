@@ -149,6 +149,72 @@ export function emaUpdate(previous: number | null, today: number): number {
   return EMA_ALPHA * today + (1 - EMA_ALPHA) * previous;
 }
 
+export interface DayHourConsumption {
+  date: string;
+  hour: number;
+  liters: number;
+}
+
+export interface HourProfile {
+  hour: number;
+  avgLiters: number;
+  samples: number;
+}
+
+export function profileFromDays(rows: DayHourConsumption[]): {
+  days: number;
+  hours: HourProfile[];
+} {
+  const hours: HourProfile[] = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    avgLiters: 0,
+    samples: 0,
+  }));
+  const ordered = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+  for (const row of ordered) {
+    const slot = hours[row.hour];
+    slot.avgLiters = emaUpdate(
+      slot.samples > 0 ? slot.avgLiters : null,
+      row.liters,
+    );
+    slot.samples += 1;
+  }
+  return { days: new Set(rows.map((r) => r.date)).size, hours };
+}
+
+export function fillMissingHours(hours: HourProfile[]): number[] {
+  const observed = hours.filter((h) => h.samples > 0);
+  const fallback = observed.length
+    ? observed.reduce((s, h) => s + h.avgLiters, 0) / observed.length
+    : 0;
+  return hours.map((h) => (h.samples > 0 ? h.avgLiters : fallback));
+}
+
+export function hourlyConsumption(
+  readings: { liters: number; at: Date }[],
+  previousLiters: number | null,
+  noiseLiters: number,
+): Map<number, number> {
+  const seriesByHour = new Map<number, number[]>();
+  let carried = previousLiters;
+  const ordered = [...readings].sort((a, b) => a.at.getTime() - b.at.getTime());
+  for (const reading of ordered) {
+    const hour = reading.at.getHours();
+    let series = seriesByHour.get(hour);
+    if (!series) {
+      series = carried === null ? [] : [carried];
+      seriesByHour.set(hour, series);
+    }
+    series.push(reading.liters);
+    carried = reading.liters;
+  }
+  const consumption = new Map<number, number>();
+  for (const [hour, series] of seriesByHour) {
+    consumption.set(hour, consumptionFromSeries(series, noiseLiters));
+  }
+  return consumption;
+}
+
 /** Días mínimos de perfil antes de usarlo (antes se usa la fórmula directa) */
 export const PROFILE_MIN_DAYS = 3;
 /** Horizonte máximo de la simulación */

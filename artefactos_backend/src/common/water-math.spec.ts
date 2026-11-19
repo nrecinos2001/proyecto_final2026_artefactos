@@ -3,8 +3,11 @@ import {
   distanceToLiters,
   emaUpdate,
   estimateRemaining,
+  fillMissingHours,
   flowTrend,
+  hourlyConsumption,
   noiseLitersFor,
+  profileFromDays,
   regressionFit,
 } from './water-math';
 
@@ -103,6 +106,55 @@ describe('water-math', () => {
     expect(
       noiseLitersFor({ capacityLiters: 1100, areaCm2: 11_000 }),
     ).toBeCloseTo(5.5);
+  });
+
+  describe('perfil por día y hora', () => {
+    it('el perfil aplica el EMA en orden de fecha aunque las filas lleguen desordenadas', () => {
+      const p = profileFromDays([
+        { date: '2026-11-02', hour: 7, liters: 30 },
+        { date: '2026-11-01', hour: 7, liters: 60 },
+      ]);
+      expect(p.days).toBe(2);
+      expect(p.hours).toHaveLength(24);
+      expect(p.hours[7].avgLiters).toBeCloseTo(51);
+      expect(p.hours[7].samples).toBe(2);
+      expect(p.hours[3]).toEqual({ hour: 3, avgLiters: 0, samples: 0 });
+    });
+
+    it('las horas sin datos usan el promedio de las horas con datos', () => {
+      const hours = Array.from({ length: 24 }, (_, hour) => {
+        const observada = hour >= 8 && hour <= 17;
+        return {
+          hour,
+          avgLiters: observada ? 30 : 0,
+          samples: observada ? 3 : 0,
+        };
+      });
+      const e = estimateRemaining({
+        now: new Date(2026, 10, 19, 20, 0, 0),
+        currentLiters: 660,
+        capacityLiters: 1100,
+        reserveLiters: 110,
+        flowLph: -30,
+        trend: 'vaciando',
+        profile: fillMissingHours(hours),
+      });
+      expect(e.hours).toBeCloseTo(18.33, 1);
+    });
+
+    it('la bajada entre dos horas cuenta en la hora de la lectura que bajó', () => {
+      const at = (h: number, m: number) => new Date(2026, 10, 18, h, m);
+      const c = hourlyConsumption(
+        [
+          { liters: 100, at: at(6, 50) },
+          { liters: 90, at: at(7, 5) },
+        ],
+        102,
+        1,
+      );
+      expect(c.get(6)).toBeCloseTo(2);
+      expect(c.get(7)).toBeCloseTo(10);
+    });
   });
 
   it('emaUpdate aplica 0.3 / 0.7', () => {

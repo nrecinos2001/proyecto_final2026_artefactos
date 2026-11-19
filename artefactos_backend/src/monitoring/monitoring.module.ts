@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { DevicesModule } from '../devices/devices.module';
 import {
   Alert,
+  DailyConsumption,
   HourlyProfile,
   LevelReading,
   TurbidityReading,
@@ -18,6 +19,7 @@ import { StatusService } from './status.service';
     DevicesModule,
     TypeOrmModule.forFeature([
       Alert,
+      DailyConsumption,
       HourlyProfile,
       LevelReading,
       TurbidityReading,
