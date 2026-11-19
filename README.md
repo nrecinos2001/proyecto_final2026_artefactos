@@ -38,8 +38,8 @@ npm run dev
 
 # 4. (Opcional) Simular el ESP8266 sin hardware
 cd ../artefactos_backend
-yarn simulador                 # cisterna "demo" que se vacía y se llena
-yarn simulador --turbia        # además el agua se va ensuciando
+yarn simulador                 # cisterna "demo" que se vacía y se llena, con pausas
+yarn simulador --turbia        # además el agua se ensucia después de la primera pausa
 ```
 
 Las tablas se crean solas (`DB_SYNCHRONIZE=true`). Una cisterna nueva se registra
@@ -57,7 +57,7 @@ el identificador de la cisterna (letras, números, `-`, `_`), p. ej. `cisterna-0
 
 | Tópico | Cuándo | Payload (cualquiera de estas formas) |
 |---|---|---|
-| `cisterna/<código>/nivel` | Cada minuto: 10 mediciones, descartar extremos, enviar la **mediana** | `{"distancia": 12.4}` (cm) · o solo `12.4` |
+| `cisterna/<código>/nivel` | Cada 60 s en uso real y cada 5 s en modo demo (la ventana de 2 min de la maqueta necesita al menos 3 lecturas): 10 mediciones, descartar extremos, enviar la **mediana** | `{"distancia": 12.4}` (cm) · o solo `12.4` |
 | `cisterna/<código>/turbidez` | Cada minuto (el backend descarta las tomadas con el nivel en movimiento) | `{"voltaje": 2.41}` · `{"raw": 748}` (ADC 0–1023) · o ambos |
 | `cisterna/<código>/estado` | Al conectar `online` (retenido); como *Last Will* `offline` | `online` / `offline` |
 

@@ -157,6 +157,9 @@ curl -s -X PATCH $API/devices/$ID -H "$J" -d '{
 }' | jq '{heightCm, areaCm2, capacityLiters, windowMinutes, stableMinutes}'
 ```
 
+La ventana de 2 min necesita al menos 3 lecturas, así que en la demo el firmware
+debe publicar cada 5 s. Con lecturas cada 60 s nunca hay caudal ni tiempo restante.
+
 Mida H y A del recipiente real. Con H = 20 cm y A = 150 cm², el porcentaje
 es **5 × (20 − d)**, así que cada distancia equivale a:
 
@@ -407,13 +410,22 @@ Además, crear un código repetido responde **409**, y una cisterna inexistente,
 
 ```bash
 cd artefactos_backend
-yarn simulador --interval=2 --rate=3            # se vacía y se llena en ciclos
-yarn simulador --interval=2 --rate=3 --turbia   # además el agua se ensucia
+yarn simulador --interval=2 --rate=10 --pausa=90            # se vacía y se llena, 90 s quieto en cada extremo
+yarn simulador --interval=2 --rate=10 --pausa=90 --turbia   # además el agua se ensucia después de la primera pausa
+yarn simulador --quieto --turbia                             # nivel fijo; el agua se ensucia pasados 120 s
 ```
 
 **Resultado esperado:** el tablero recorre normal → bajo → crítico → llenando →
 normal, con sus alertas, y el simulador imprime los mensajes `alerta` que recibe
 del backend (lo mismo que verá el ESP8266).
+
+Con `--turbia` y `stableMinutes` = 1 (sección 1.7):
+
+1. Presione "Cisterna limpia" antes de la primera pausa o durante ella. La primera
+   lectura válida (con el nivel quieto 1 min) queda como referencia de agua limpia.
+2. Al terminar la primera pausa el agua empieza a ensuciarse.
+3. En la segunda pausa, tras 3 lecturas válidas bajo el 80 % de la referencia,
+   aparece el aviso TURBIDEZ.
 
 ---
 
