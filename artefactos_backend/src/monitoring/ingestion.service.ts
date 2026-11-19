@@ -75,6 +75,23 @@ export class IngestionService implements OnModuleInit {
     this.mqtt.onMessage((msg) =>
       this.enqueue(msg.deviceCode, () => this.handle(msg)),
     );
+    this.mqtt.onConnect(() => this.republishLocalAlerts());
+  }
+
+  async republishLocalAlerts() {
+    let published = 0;
+    for (const device of await this.devices.findAll()) {
+      if (!device.levelState) continue;
+      const latest = await this.levels.findOne({
+        where: { deviceId: device.id },
+        order: { createdAt: 'DESC' },
+      });
+      if (!latest) continue;
+      if (this.publishLocalAlert(device, device.levelState, latest.percent)) {
+        published += 1;
+      }
+    }
+    return published;
   }
 
   private enqueue<T>(key: string, task: () => Promise<T>): Promise<T> {
@@ -214,7 +231,7 @@ export class IngestionService implements OnModuleInit {
     state: LevelState,
     percent: number,
   ) {
-    this.mqtt.publish(device.code, 'alerta', {
+    return this.mqtt.publish(device.code, 'alerta', {
       estado: state,
       led: state === 'normal' ? 'verde' : 'rojo',
       buzzer: state === 'critico',

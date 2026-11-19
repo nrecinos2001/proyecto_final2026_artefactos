@@ -30,6 +30,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttService.name);
   private client?: MqttClient;
   private handlers: Handler[] = [];
+  private connectHandlers: (() => Promise<unknown> | void)[] = [];
   readonly prefix: string;
 
   constructor(private readonly config: ConfigService) {
@@ -38,6 +39,10 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
 
   onMessage(handler: Handler) {
     this.handlers.push(handler);
+  }
+
+  onConnect(handler: () => Promise<unknown> | void) {
+    this.connectHandlers.push(handler);
   }
 
   onModuleInit() {
@@ -58,6 +63,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         if (err) this.logger.error(`Error al suscribirse: ${err.message}`);
         else this.logger.log(`Suscrito a ${topics.join(', ')}`);
       });
+      for (const handler of this.connectHandlers) {
+        Promise.resolve()
+          .then(handler)
+          .catch((err: Error) =>
+            this.logger.error(`Error al reconectar: ${err.message}`),
+          );
+      }
     });
     this.client.on('reconnect', () => this.logger.warn('Reconectando...'));
     this.client.on('error', (err) => this.logger.error(err.message));
@@ -86,13 +98,19 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  publish(deviceCode: string, kind: string, payload: unknown, retain = true) {
-    if (!this.client?.connected) return;
-    this.client.publish(
-      `${this.prefix}/${deviceCode}/${kind}`,
-      JSON.stringify(payload),
-      { qos: 1, retain },
-    );
+  publish(
+    deviceCode: string,
+    kind: string,
+    payload: unknown,
+    retain = true,
+  ): boolean {
+    const topic = `${this.prefix}/${deviceCode}/${kind}`;
+    if (!this.client?.connected) {
+      this.logger.warn(`No se publicó ${topic}: broker desconectado`);
+      return false;
+    }
+    this.client.publish(topic, JSON.stringify(payload), { qos: 1, retain });
+    return true;
   }
 
   get connected() {

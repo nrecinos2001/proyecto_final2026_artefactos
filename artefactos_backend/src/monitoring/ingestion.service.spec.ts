@@ -11,11 +11,13 @@ import { StatusService } from './status.service';
 type Handler = (msg: IncomingMessage) => Promise<void> | void;
 
 interface Fakes {
+  levels?: Partial<Repository<LevelReading>>;
   devices?: Partial<DevicesService>;
   turbidity?: Partial<Repository<TurbidityReading>>;
   alerts?: Partial<AlertsService>;
   status?: Partial<StatusService>;
   events?: Partial<EventsService>;
+  mqtt?: Partial<MqttService>;
 }
 
 function buildService(fakes: Fakes = {}) {
@@ -24,10 +26,12 @@ function buildService(fakes: Fakes = {}) {
     onMessage: (h: Handler) => {
       handler = h;
     },
+    onConnect: () => undefined,
+    ...fakes.mqtt,
   } as unknown as MqttService;
   const config = { get: () => 'true' } as unknown as ConfigService;
   const service = new IngestionService(
-    {} as Repository<LevelReading>,
+    (fakes.levels ?? {}) as Repository<LevelReading>,
     (fakes.turbidity ?? {}) as Repository<TurbidityReading>,
     (fakes.devices ?? {}) as DevicesService,
     (fakes.alerts ?? {}) as AlertsService,
@@ -94,5 +98,31 @@ describe('IngestionService', () => {
         awaitingTurbidityReference: true,
       }),
     );
+  });
+
+  it('al reconectar se publica el estado de cada cisterna con nivel conocido', async () => {
+    const publish = jest.fn(() => true);
+    const { service } = buildService({
+      mqtt: { publish },
+      devices: {
+        findAll: () =>
+          Promise.resolve([
+            device({ levelState: 'critico' }),
+            device({ id: 'd2', code: 'otra', levelState: null }),
+          ]),
+      },
+      levels: {
+        findOne: () => Promise.resolve({ percent: 8.2 } as LevelReading),
+      },
+    });
+
+    expect(await service.republishLocalAlerts()).toBe(1);
+    expect(publish).toHaveBeenCalledWith('demo', 'alerta', {
+      estado: 'critico',
+      led: 'rojo',
+      buzzer: true,
+      bomba: false,
+      porcentaje: 8.2,
+    });
   });
 });
