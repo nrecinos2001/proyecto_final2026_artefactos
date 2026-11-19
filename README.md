@@ -90,6 +90,29 @@ docker exec cisterna_mosquitto mosquitto_pub -t cisterna/demo/nivel -m '{"distan
 docker exec cisterna_mosquitto mosquitto_sub -t 'cisterna/#' -v
 ```
 
+## Avisos por Telegram
+
+Cada alerta nueva (nivel bajo, nivel crítico, agua turbia, limpieza programada o
+sensor desconectado) se envía por Telegram, así llega al celular aunque la
+plataforma esté cerrada o el celular use datos móviles. El servidor necesita
+salida a internet.
+
+1. En Telegram, abra el chat con `@BotFather`, envíe `/newbot` y copie el token.
+2. Cada persona que quiera recibir avisos abre el bot nuevo y le envía `/start`.
+3. Abra `https://api.telegram.org/bot<token>/getUpdates` en el navegador y copie
+   el `message.chat.id` de cada persona.
+4. En `artefactos_backend/.env`:
+   ```
+   TELEGRAM_BOT_TOKEN=<token>
+   TELEGRAM_CHAT_IDS=<id1>,<id2>
+   ```
+5. Reinicie el backend y publique un nivel crítico para probar:
+   `docker exec cisterna_mosquitto mosquitto_pub -t cisterna/demo/nivel -m '{"distancia": 17.5}'`.
+
+Sin esas variables los avisos quedan desactivados (el log lo indica al iniciar).
+Si Telegram no responde, la alerta se guarda y se muestra igual, y el error queda
+en el log con el código de respuesta.
+
 ## Cómo se calcula (resumen del anteproyecto)
 
 1. **Distancia → litros**: `V = A × (H − d)`, o interpolación en la tabla de
