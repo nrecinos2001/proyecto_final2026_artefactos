@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,6 +30,19 @@ import { StatusService } from './status.service';
 const LEVEL_HYSTERESIS = 2;
 /** Una referencia de turbidez se toma del promedio de las lecturas válidas recientes */
 const REFERENCE_LOOKBACK_MS = 15 * 60_000;
+
+const SIMULATION_RANGES = {
+  nivel: {
+    accepts: (value: number) => parseLevelPayload(String(value)) !== null,
+    error: (value: number) =>
+      `distancia debe estar entre 0 y 1000 cm, se recibió ${value}`,
+  },
+  turbidez: {
+    accepts: (value: number) => parseTurbidityPayload(String(value)) !== null,
+    error: (value: number) =>
+      `voltaje de turbidez debe estar entre 0 y 5 V, se recibió ${value}`,
+  },
+};
 
 /**
  * Procesa los mensajes del ESP8266: guarda lecturas, actualiza el estado de la
@@ -263,7 +281,9 @@ export class IngestionService implements OnModuleInit {
    * de las lecturas válidas recientes; si no hay, espera la próxima lectura válida.
    */
   markClean(device: Device) {
-    return this.enqueue(device.code, () => this.doMarkClean(device));
+    return this.enqueue(device.code, async () =>
+      this.doMarkClean(await this.devices.findOne(device.id)),
+    );
   }
 
   private async doMarkClean(device: Device) {
@@ -341,7 +361,10 @@ export class IngestionService implements OnModuleInit {
   }
 
   /** Simulación por HTTP (sin hardware) pasando por la misma cola que MQTT */
-  simulate(device: Device, kind: 'nivel' | 'turbidez', value: number) {
+  async simulate(device: Device, kind: 'nivel' | 'turbidez', value: number) {
+    const range = SIMULATION_RANGES[kind];
+    if (!range.accepts(value))
+      throw new BadRequestException(range.error(value));
     return this.enqueue(device.code, async () => {
       const fresh = await this.devices.findOne(device.id);
       return kind === 'nivel'

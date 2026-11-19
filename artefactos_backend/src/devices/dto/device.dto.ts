@@ -16,13 +16,7 @@ import {
 } from 'class-validator';
 
 /** Campos configurables de una cisterna (todos opcionales para PATCH) */
-export class UpdateDeviceDto {
-  @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(120)
-  name?: string;
-
+export class DeviceSettingsDto {
   @IsOptional()
   @IsNumber()
   @IsPositive()
@@ -92,7 +86,15 @@ export class UpdateDeviceDto {
   cleaningIntervalDays?: number;
 }
 
-export class CreateDeviceDto extends UpdateDeviceDto {
+export class UpdateDeviceDto extends DeviceSettingsDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name?: string;
+}
+
+export class CreateDeviceDto extends DeviceSettingsDto {
   /** Identificador usado en los tópicos MQTT: cisterna/<code>/... */
   @IsString()
   @Matches(/^[a-zA-Z0-9_-]{1,64}$/, {
@@ -103,7 +105,7 @@ export class CreateDeviceDto extends UpdateDeviceDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
-  declare name: string;
+  name: string;
 }
 
 export class CalibrationPointDto {
