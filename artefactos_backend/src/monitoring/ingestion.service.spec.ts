@@ -102,14 +102,16 @@ describe('IngestionService', () => {
 
   it('al reconectar se publica el estado de cada cisterna con nivel conocido', async () => {
     const publish = jest.fn(() => true);
+    const devices = [
+      device({ levelState: 'critico' }),
+      device({ id: 'd2', code: 'otra', levelState: null }),
+    ];
     const { service } = buildService({
       mqtt: { publish },
       devices: {
-        findAll: () =>
-          Promise.resolve([
-            device({ levelState: 'critico' }),
-            device({ id: 'd2', code: 'otra', levelState: null }),
-          ]),
+        findAll: () => Promise.resolve(devices),
+        findOne: (id: string) =>
+          Promise.resolve(devices.find((d) => d.id === id)!),
       },
       levels: {
         findOne: () => Promise.resolve({ percent: 8.2 } as LevelReading),
@@ -124,5 +126,27 @@ describe('IngestionService', () => {
       bomba: false,
       porcentaje: 8.2,
     });
+  });
+
+  it('al reconectar se publica el estado actual de la cisterna, no el de la lista leída antes', async () => {
+    const publish = jest.fn(() => true);
+    const { service } = buildService({
+      mqtt: { publish },
+      devices: {
+        findAll: () => Promise.resolve([device({ levelState: 'bajo' })]),
+        findOne: () => Promise.resolve(device({ levelState: 'critico' })),
+      },
+      levels: {
+        findOne: () => Promise.resolve({ percent: 12 } as LevelReading),
+      },
+    });
+
+    await service.republishLocalAlerts();
+
+    expect(publish).toHaveBeenCalledWith(
+      'demo',
+      'alerta',
+      expect.objectContaining({ estado: 'critico', buzzer: true }),
+    );
   });
 });

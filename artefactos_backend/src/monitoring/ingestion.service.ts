@@ -79,19 +79,24 @@ export class IngestionService implements OnModuleInit {
   }
 
   async republishLocalAlerts() {
-    let published = 0;
-    for (const device of await this.devices.findAll()) {
-      if (!device.levelState) continue;
-      const latest = await this.levels.findOne({
-        where: { deviceId: device.id },
-        order: { createdAt: 'DESC' },
-      });
-      if (!latest) continue;
-      if (this.publishLocalAlert(device, device.levelState, latest.percent)) {
-        published += 1;
-      }
-    }
-    return published;
+    const devices = await this.devices.findAll();
+    const results = await Promise.all(
+      devices.map((device) =>
+        this.enqueue(device.code, () => this.republishLocalAlert(device.id)),
+      ),
+    );
+    return results.filter(Boolean).length;
+  }
+
+  private async republishLocalAlert(deviceId: string) {
+    const device = await this.devices.findOne(deviceId);
+    if (!device.levelState) return false;
+    const latest = await this.levels.findOne({
+      where: { deviceId },
+      order: { createdAt: 'DESC' },
+    });
+    if (!latest) return false;
+    return this.publishLocalAlert(device, device.levelState, latest.percent);
   }
 
   private enqueue<T>(key: string, task: () => Promise<T>): Promise<T> {
