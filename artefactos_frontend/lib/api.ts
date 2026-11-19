@@ -1,5 +1,10 @@
-export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
+const API_PORT = process.env.NEXT_PUBLIC_API_PORT || "3001";
+
+export function apiUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window === "undefined") return `http://localhost:${API_PORT}/api`;
+  return `${window.location.protocol}//${window.location.hostname}:${API_PORT}/api`;
+}
 
 export type LevelState = "normal" | "bajo" | "critico";
 export type FlowTrend = "vaciando" | "llenando" | "estable";
@@ -162,14 +167,14 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    res = await fetch(`${apiUrl()}${path}`, {
       ...init,
       headers: { "Content-Type": "application/json", ...init?.headers },
       cache: "no-store",
     });
   } catch {
     throw new ApiError(
-      `No se pudo conectar con el servidor (${API_URL}). ¿Está encendido el backend?`,
+      `No se pudo conectar con el servidor (${apiUrl()}). ¿Está encendido el backend?`,
       0,
     );
   }
@@ -252,7 +257,7 @@ export function subscribe(
   onEvent: (e: LiveEvent) => void,
   opts: { deviceId?: string; onConnection?: (open: boolean) => void } = {},
 ) {
-  const url = new URL(`${API_URL}/events`);
+  const url = new URL(`${apiUrl()}/events`);
   if (opts.deviceId) url.searchParams.set("deviceId", opts.deviceId);
   const source = new EventSource(url);
   const handler = (ev: MessageEvent) => {

@@ -90,6 +90,27 @@ docker exec cisterna_mosquitto mosquitto_pub -t cisterna/demo/nivel -m '{"distan
 docker exec cisterna_mosquitto mosquitto_sub -t 'cisterna/#' -v
 ```
 
+## Demo en red local (celular)
+
+1. Conecte la laptop, el ESP8266 y el celular a la misma red. Un hotspot de
+   celular evita los portales cautivos de las redes de la universidad.
+2. Busque la IP de la laptop con `ipconfig` (Dirección IPv4, p. ej. `192.168.0.8`).
+3. Backend: en `artefactos_backend/.env` ponga `FRONTEND_URL=*` para aceptar
+   la página desde cualquier IP de la red.
+4. Frontend: deje `NEXT_PUBLIC_API_URL` vacío. La página usa su mismo host y el
+   puerto `NEXT_PUBLIC_API_PORT` (3001 por defecto). Córralo en modo producción:
+   ```bash
+   cd artefactos_frontend
+   npm run build
+   npx next start -H 0.0.0.0
+   ```
+5. Firewall de Windows (PowerShell como administrador), con la red marcada como
+   privada:
+   ```powershell
+   New-NetFirewallRule -DisplayName "Cisterna demo" -Direction Inbound -Protocol TCP -LocalPort 3000,3001,1883 -Action Allow -Profile Private
+   ```
+6. En el celular abra `http://<IP>:3000`. El ESP8266 usa `mqtt://<IP>:1883`.
+
 ## Avisos por Telegram
 
 Cada alerta nueva (nivel bajo, nivel crítico, agua turbia, limpieza programada o
