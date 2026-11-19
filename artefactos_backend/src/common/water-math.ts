@@ -106,28 +106,6 @@ export function flowTrend(
   return 'estable';
 }
 
-/**
- * Consumo (litros) dentro de una serie de lecturas: suma de las bajadas,
- * ignorando los llenados y el ruido menor que `noiseLiters` (histéresis).
- */
-export function consumptionFromSeries(
-  values: number[],
-  noiseLiters: number,
-): number {
-  if (values.length < 2) return 0;
-  let ref = values[0];
-  let total = 0;
-  for (const v of values.slice(1)) {
-    if (v < ref - noiseLiters) {
-      total += ref - v;
-      ref = v;
-    } else if (v > ref + noiseLiters) {
-      ref = v; // está entrando agua: se mueve la referencia sin contar consumo
-    }
-  }
-  return total;
-}
-
 export const NOISE_RATIO = 0.005;
 export const SENSOR_RESOLUTION_CM = 0.3;
 
@@ -202,25 +180,26 @@ export function hourlyConsumption(
   previous: TimedLiters | null,
   noiseLiters: number,
 ): Map<number, number> {
-  const seriesByHour = new Map<number, number[]>();
-  let carried = previous;
+  const consumption = new Map<number, number>();
   const ordered = [...readings].sort((a, b) => a.at.getTime() - b.at.getTime());
+  let last = previous;
+  let reference = previous?.liters ?? 0;
   for (const reading of ordered) {
     const hour = reading.at.getHours();
-    let series = seriesByHour.get(hour);
-    if (!series) {
-      const recent =
-        carried !== null &&
-        reading.at.getTime() - carried.at.getTime() <= MAX_CARRY_GAP_MS;
-      series = recent ? [carried!.liters] : [];
-      seriesByHour.set(hour, series);
+    const booked = consumption.get(hour) ?? 0;
+    const gap =
+      last === null ||
+      reading.at.getTime() - last.at.getTime() > MAX_CARRY_GAP_MS;
+    if (gap || reading.liters > reference + noiseLiters) {
+      reference = reading.liters;
+      consumption.set(hour, booked);
+    } else if (reading.liters < reference - noiseLiters) {
+      consumption.set(hour, booked + reference - reading.liters);
+      reference = reading.liters;
+    } else {
+      consumption.set(hour, booked);
     }
-    series.push(reading.liters);
-    carried = reading;
-  }
-  const consumption = new Map<number, number>();
-  for (const [hour, series] of seriesByHour) {
-    consumption.set(hour, consumptionFromSeries(series, noiseLiters));
+    last = reading;
   }
   return consumption;
 }

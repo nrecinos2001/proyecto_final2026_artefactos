@@ -1,5 +1,4 @@
 import {
-  consumptionFromSeries,
   distanceToLiters,
   emaUpdate,
   estimateRemaining,
@@ -89,16 +88,28 @@ describe('water-math', () => {
     });
   });
 
-  it('consumptionFromSeries ignora llenados y ruido', () => {
-    expect(consumptionFromSeries([100, 99.8, 95, 90, 120, 110], 1)).toBeCloseTo(
-      20,
+  const minuteSeries = (values: number[]) =>
+    values.map((liters, i) => ({
+      liters,
+      at: new Date(2026, 10, 18, 9, i),
+    }));
+
+  it('el consumo ignora llenados y ruido', () => {
+    const c = hourlyConsumption(
+      minuteSeries([100, 99.8, 95, 90, 120, 110]),
+      null,
+      1,
     );
+    expect(c.get(9)).toBeCloseTo(20);
   });
 
   it('el nivel quieto con ruido no suma consumo', () => {
-    expect(
-      consumptionFromSeries([1.5, 1.53, 1.47, 1.53, 1.47, 1.5], 0.045),
-    ).toBe(0);
+    const c = hourlyConsumption(
+      minuteSeries([1.5, 1.53, 1.47, 1.53, 1.47, 1.5]),
+      null,
+      0.045,
+    );
+    expect(c.get(9)).toBe(0);
   });
 
   it('el umbral de ruido cubre la resolución del sensor', () => {
@@ -156,6 +167,17 @@ describe('water-math', () => {
       );
       expect(c.get(6)).toBeCloseTo(2);
       expect(c.get(7)).toBeCloseTo(10);
+    });
+
+    it('un consumo lento y constante no se pierde entre horas', () => {
+      const start = new Date(2026, 10, 18, 7, 0).getTime();
+      const readings = Array.from({ length: 240 }, (_, i) => ({
+        liters: 10 - 0.0005 * i,
+        at: new Date(start + i * 60_000),
+      }));
+      const c = hourlyConsumption(readings, null, 0.045);
+      const total = [...c.values()].reduce((sum, liters) => sum + liters, 0);
+      expect(total).toBeGreaterThan(0.08);
     });
 
     it('una lectura separada por más de 15 minutos no se arrastra a la hora siguiente', () => {
