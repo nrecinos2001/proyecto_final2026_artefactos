@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, LessThan, Repository } from 'typeorm';
+import { And, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 import {
   HourProfile,
   PROFILE_MIN_DAYS,
@@ -61,7 +61,10 @@ export class ProfileService implements OnApplicationBootstrap {
     const end = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
     const [rows, previous] = await Promise.all([
       this.readings.find({
-        where: { deviceId: device.id, createdAt: Between(start, end) },
+        where: {
+          deviceId: device.id,
+          createdAt: And(MoreThanOrEqual(start), LessThan(end)),
+        },
         order: { createdAt: 'ASC' },
         select: { liters: true, createdAt: true },
       }),

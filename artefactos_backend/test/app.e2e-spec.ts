@@ -75,4 +75,45 @@ describe('AppController (e2e)', () => {
 
     await request(server).delete(`/devices/${deviceId}`).expect(204);
   });
+
+  it('una lectura a la medianoche siguiente no cuenta en el día anterior', async () => {
+    const server = app.getHttpServer();
+    const created = await request(server)
+      .post('/devices')
+      .send({ code: `e2e-medianoche-${Date.now()}`, name: 'Prueba medianoche' })
+      .expect(201);
+    const deviceId = (created.body as { id: string }).id;
+    const levels = app.get<Repository<LevelReading>>(
+      getRepositoryToken(LevelReading),
+    );
+    await levels.save([
+      levels.create({
+        deviceId,
+        distanceCm: 10,
+        liters: 1.5,
+        percent: 50,
+        createdAt: new Date(2026, 10, 18, 0, 30),
+      }),
+      levels.create({
+        deviceId,
+        distanceCm: 16,
+        liters: 0.6,
+        percent: 20,
+        createdAt: new Date(2026, 10, 19, 0, 0, 0, 0),
+      }),
+    ]);
+
+    await request(server)
+      .post(`/devices/${deviceId}/profile/recompute`)
+      .send({ date: '2026-11-18' })
+      .expect(201);
+
+    const profile = await request(server)
+      .get(`/devices/${deviceId}/profile`)
+      .expect(200);
+    const body = profile.body as { hours: { avgLiters: number }[] };
+    expect(body.hours[0].avgLiters).toBe(0);
+
+    await request(server).delete(`/devices/${deviceId}`).expect(204);
+  });
 });
