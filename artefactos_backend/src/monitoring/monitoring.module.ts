@@ -4,7 +4,6 @@ import { DevicesModule } from '../devices/devices.module';
 import {
   Alert,
   DailyConsumption,
-  HourlyProfile,
   LevelReading,
   TurbidityReading,
 } from '../entities';
@@ -20,7 +19,6 @@ import { StatusService } from './status.service';
     TypeOrmModule.forFeature([
       Alert,
       DailyConsumption,
-      HourlyProfile,
       LevelReading,
       TurbidityReading,
     ]),

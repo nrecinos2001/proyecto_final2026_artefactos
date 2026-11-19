@@ -190,23 +190,33 @@ export function fillMissingHours(hours: HourProfile[]): number[] {
   return hours.map((h) => (h.samples > 0 ? h.avgLiters : fallback));
 }
 
+export interface TimedLiters {
+  liters: number;
+  at: Date;
+}
+
+export const MAX_CARRY_GAP_MS = 15 * 60_000;
+
 export function hourlyConsumption(
-  readings: { liters: number; at: Date }[],
-  previousLiters: number | null,
+  readings: TimedLiters[],
+  previous: TimedLiters | null,
   noiseLiters: number,
 ): Map<number, number> {
   const seriesByHour = new Map<number, number[]>();
-  let carried = previousLiters;
+  let carried = previous;
   const ordered = [...readings].sort((a, b) => a.at.getTime() - b.at.getTime());
   for (const reading of ordered) {
     const hour = reading.at.getHours();
     let series = seriesByHour.get(hour);
     if (!series) {
-      series = carried === null ? [] : [carried];
+      const recent =
+        carried !== null &&
+        reading.at.getTime() - carried.at.getTime() <= MAX_CARRY_GAP_MS;
+      series = recent ? [carried!.liters] : [];
       seriesByHour.set(hour, series);
     }
     series.push(reading.liters);
-    carried = reading.liters;
+    carried = reading;
   }
   const consumption = new Map<number, number>();
   for (const [hour, series] of seriesByHour) {
@@ -331,4 +341,35 @@ export function localDateKey(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+export const PROFILE_BACKFILL_DAYS = 30;
+
+function dateFromKey(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+export function pendingDateKeys(
+  lastDate: string | null,
+  firstReadingDate: string | null,
+  today: Date,
+): string[] {
+  const startKey = lastDate ?? firstReadingDate;
+  if (startKey === null) return [];
+  const cursor = dateFromKey(startKey);
+  if (lastDate !== null) cursor.setDate(cursor.getDate() + 1);
+  const earliest = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - PROFILE_BACKFILL_DAYS,
+  );
+  if (cursor < earliest) cursor.setTime(earliest.getTime());
+  const todayKey = localDateKey(today);
+  const keys: string[] = [];
+  while (localDateKey(cursor) < todayKey) {
+    keys.push(localDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return keys;
 }

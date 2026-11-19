@@ -7,6 +7,7 @@ import {
   flowTrend,
   hourlyConsumption,
   noiseLitersFor,
+  pendingDateKeys,
   profileFromDays,
   regressionFit,
 } from './water-math';
@@ -149,11 +150,42 @@ describe('water-math', () => {
           { liters: 100, at: at(6, 50) },
           { liters: 90, at: at(7, 5) },
         ],
-        102,
+        { liters: 102, at: at(6, 45) },
         1,
       );
       expect(c.get(6)).toBeCloseTo(2);
       expect(c.get(7)).toBeCloseTo(10);
+    });
+
+    it('una lectura separada por más de 15 minutos no se arrastra a la hora siguiente', () => {
+      const at = (h: number, m: number) => new Date(2026, 10, 18, h, m);
+      const c = hourlyConsumption(
+        [
+          { liters: 100, at: at(7, 0) },
+          { liters: 40, at: at(15, 0) },
+          { liters: 38, at: at(15, 10) },
+        ],
+        { liters: 300, at: at(5, 0) },
+        1,
+      );
+      expect(c.get(7)).toBe(0);
+      expect(c.get(15)).toBeCloseTo(2);
+    });
+
+    it('procesa todos los días pendientes cuando el servidor estuvo apagado', () => {
+      expect(
+        pendingDateKeys('2026-11-14', null, new Date(2026, 10, 19, 9)),
+      ).toEqual(['2026-11-15', '2026-11-16', '2026-11-17', '2026-11-18']);
+    });
+
+    it('sin días procesados empieza en el día de la primera lectura y no pasa de 30 días', () => {
+      const today = new Date(2026, 10, 19, 9);
+      expect(pendingDateKeys(null, '2026-11-17', today)).toEqual([
+        '2026-11-17',
+        '2026-11-18',
+      ]);
+      expect(pendingDateKeys(null, '2026-01-01', today)).toHaveLength(30);
+      expect(pendingDateKeys(null, null, today)).toEqual([]);
     });
   });
 

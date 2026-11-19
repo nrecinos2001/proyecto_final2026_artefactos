@@ -98,10 +98,11 @@ export class MonitoringController {
   @Get('devices/:id/profile')
   async getProfile(@Param('id', ParseUUIDPipe) id: string) {
     const device = await this.devices.findOne(id);
+    const profile = await this.profiles.getProfile(id);
     return {
-      days: device.profileDays,
+      days: profile.days,
       lastDate: device.profileLastDate,
-      hours: await this.profiles.getProfile(id),
+      hours: profile.hours,
     };
   }
 

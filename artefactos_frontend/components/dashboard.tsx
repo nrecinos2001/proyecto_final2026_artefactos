@@ -411,7 +411,7 @@ function ProfileCard({ deviceId, profileDays }: { deviceId: string; profileDays:
           className="py-1 text-xs"
           onClick={processToday}
           disabled={busy}
-          title="Incorpora las lecturas de hoy al perfil (útil para la demostración)"
+          title="Incorpora las lecturas de hoy al perfil; se puede repetir sin duplicar"
         >
           {busy ? "Procesando…" : "Procesar hoy"}
         </Button>
