@@ -5,7 +5,7 @@ y recibe los cambios en vivo por Server-Sent Events. Ver el
 [README principal](../README.md).
 
 ```bash
-cp .env.example .env.local   # NEXT_PUBLIC_API_URL=http://localhost:3001/api
+cp .env.example .env.local   # URL de la API vacía = mismo host, puerto NEXT_PUBLIC_API_PORT (3001)
 npm install
 npm run dev                  # http://localhost:3000
 ```

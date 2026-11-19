@@ -7,20 +7,24 @@ NestJS 11 + TypeORM + PostgreSQL + MQTT (Mosquitto). Ver el
 docker compose up -d   # Mosquitto (1883, 9001 ws) + PostgreSQL (5433)
 yarn start:dev         # API en http://localhost:3001/api
 yarn simulador         # ESP8266 simulado
-yarn test              # pruebas unitarias de los cálculos
+yarn semilla           # 3 días de historial para la demo del perfil
+yarn test              # pruebas unitarias
+yarn test:e2e          # pruebas de punta a punta (necesita docker compose arriba)
 ```
 
 ## Estructura
 
 | Ruta | Responsabilidad |
 |---|---|
-| `src/common/water-math.ts` | Cálculos puros: litros, regresión, perfil EMA, tiempo restante |
+| `src/common/water-math.ts` | Cálculos puros: litros, regresión con prueba de significancia, perfil EMA, tiempo restante, turbidez |
 | `src/common/payload.ts` | Lectura tolerante de los payloads del ESP8266 |
-| `src/entities/` | Tablas: `devices`, `calibration_points`, `level_readings`, `turbidity_readings`, `hourly_profiles`, `alerts` |
-| `src/mqtt/` | Conexión al broker, suscripción y publicación |
+| `src/common/csv.ts` | Formato CSV de las exportaciones |
+| `src/entities/` | Tablas: `devices`, `calibration_points`, `level_readings`, `turbidity_readings`, `daily_consumption`, `alerts` |
+| `src/mqtt/` | Conexión al broker, suscripción, publicación y republicación al reconectar |
+| `src/notifications/` | Avisos por Telegram |
 | `src/monitoring/ingestion.service.ts` | Procesa cada mensaje: guarda, alertas, LED/buzzer, eventos en vivo |
 | `src/monitoring/status.service.ts` | "Foto" del estado de una cisterna (lo que muestra el tablero) |
-| `src/monitoring/profile.service.ts` | Perfil de consumo por hora (tarea de cada medianoche) |
+| `src/monitoring/profile.service.ts` | Perfil de consumo por hora: procesa los días pendientes al arrancar y a las 00:05 |
 | `src/events/` | Server-Sent Events hacia el navegador |
 
 ## API (`/api`)
@@ -34,6 +38,7 @@ yarn test              # pruebas unitarias de los cálculos
 | GET | `/devices/:id/status` | Nivel, caudal, tiempo restante, turbidez, limpieza y alertas activas |
 | GET | `/devices/:id/readings?from&to&maxPoints` | Historial de nivel |
 | GET | `/devices/:id/turbidity?from&to&maxPoints` | Historial de turbidez |
+| GET | `/devices/:id/export?tipo=nivel\|turbidez&from&to` | Descarga CSV (nivel con caudal y tiempo estimado; turbidez) |
 | POST | `/devices/:id/clean` | Botón "Cisterna limpia" |
 | GET / DELETE | `/devices/:id/profile` | Perfil por hora / reiniciarlo |
 | POST | `/devices/:id/profile/recompute` | Procesar un día (`{ date?: "YYYY-MM-DD" }`) |
