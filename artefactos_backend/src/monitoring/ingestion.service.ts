@@ -63,9 +63,10 @@ export class IngestionService implements OnModuleInit {
     const prev = this.queues.get(key) ?? Promise.resolve();
     const next = prev.catch(() => undefined).then(task);
     this.queues.set(key, next);
-    void next.finally(() => {
+    const release = () => {
       if (this.queues.get(key) === next) this.queues.delete(key);
-    });
+    };
+    void next.then(release, release);
     return next;
   }
 
