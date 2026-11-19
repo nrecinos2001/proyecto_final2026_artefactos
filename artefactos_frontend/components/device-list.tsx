@@ -118,7 +118,7 @@ export function DeviceList() {
                 <div className="text-3xl font-semibold tabular">{pct !== null ? percent(pct) : "—"}</div>
                 <div className="text-right text-sm text-muted tabular">
                   {s?.level ? liters(s.level.liters) : "Sin lecturas"}
-                  <div className="text-xs text-faint">{relative(d.lastSeenAt)}</div>
+                  <div className="text-xs text-faint">{relative(s?.device.lastSeenAt ?? d.lastSeenAt)}</div>
                 </div>
               </div>
               <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2">

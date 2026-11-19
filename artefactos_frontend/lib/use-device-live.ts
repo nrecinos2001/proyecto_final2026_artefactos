@@ -69,9 +69,9 @@ export function useDeviceLive(deviceId: string, range: RangeKey) {
             [...prev, e.data].filter((r) => new Date(r.createdAt).getTime() >= cutoff()),
           );
       },
-      { deviceId, onConnection: setConnected },
+      { deviceId, onConnection: setConnected, onReconnect: reload },
     );
-  }, [deviceId, rangeMs]);
+  }, [deviceId, rangeMs, reload]);
 
   // Re-render periódico para los textos "hace X min" y el estado en línea
   const [, setTick] = useState(0);

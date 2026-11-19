@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, type DeviceStatus, type HourlyProfile } from "@/lib/api";
+import { api, type DeviceStatus, type FlowTrend, type HourlyProfile } from "@/lib/api";
 import {
   alertTypeLabel,
   clock,
@@ -225,6 +225,12 @@ function LevelCard({ status }: { status: DeviceStatus }) {
   );
 }
 
+const ZERO_HOURS_HEADLINE: Record<FlowTrend, string> = {
+  vaciando: "En reserva",
+  llenando: "Llena",
+  estable: "Sin consumo",
+};
+
 function EstimateCard({ status }: { status: DeviceStatus }) {
   const { flow: q, estimate: e, device } = status;
   let headline = "—";
@@ -240,7 +246,7 @@ function EstimateCard({ status }: { status: DeviceStatus }) {
       caption = e.mode === "vaciando" ? "Al ritmo actual el agua alcanza para varios días." : "El llenado es muy lento.";
       tone = "good";
     } else if (e.hours !== null && e.eta) {
-      headline = e.hours === 0 ? "En reserva" : duration(e.hours);
+      headline = e.hours === 0 ? ZERO_HOURS_HEADLINE[e.mode] : duration(e.hours);
       if (e.mode === "vaciando") {
         caption =
           e.hours === 0

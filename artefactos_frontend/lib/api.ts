@@ -252,23 +252,61 @@ export type LiveEvent =
   | { type: "alert"; deviceId: string; data: Alert }
   | { type: "device"; deviceId: string; data: Device };
 
-/** Se suscribe al flujo SSE del backend. Devuelve una función para cerrar. */
+interface LiveListener {
+  onEvent: (e: LiveEvent) => void;
+  deviceId?: string;
+  onConnection?: (open: boolean) => void;
+  onReconnect?: () => void;
+}
+
+const LIVE_EVENT_TYPES = ["status", "level", "turbidity", "alert", "device"];
+const liveListeners = new Set<LiveListener>();
+let liveSource: EventSource | null = null;
+let liveConnectionLost = false;
+
+function dispatchLiveEvent(message: MessageEvent<string>) {
+  const event = JSON.parse(message.data) as LiveEvent;
+  for (const listener of liveListeners) {
+    if (!listener.deviceId || listener.deviceId === event.deviceId) {
+      listener.onEvent(event);
+    }
+  }
+}
+
+function openLiveSource() {
+  const source = new EventSource(`${apiUrl()}/events`);
+  for (const type of LIVE_EVENT_TYPES) {
+    source.addEventListener(type, dispatchLiveEvent);
+  }
+  source.onopen = () => {
+    const reconnected = liveConnectionLost;
+    liveConnectionLost = false;
+    for (const listener of liveListeners) {
+      listener.onConnection?.(true);
+      if (reconnected) listener.onReconnect?.();
+    }
+  };
+  source.onerror = () => {
+    liveConnectionLost = true;
+    for (const listener of liveListeners) listener.onConnection?.(false);
+  };
+  return source;
+}
+
 export function subscribe(
   onEvent: (e: LiveEvent) => void,
-  opts: { deviceId?: string; onConnection?: (open: boolean) => void } = {},
+  opts: Omit<LiveListener, "onEvent"> = {},
 ) {
-  const url = new URL(`${apiUrl()}/events`);
-  if (opts.deviceId) url.searchParams.set("deviceId", opts.deviceId);
-  const source = new EventSource(url);
-  const handler = (ev: MessageEvent) => {
-    try {
-      onEvent(JSON.parse(ev.data) as LiveEvent);
-    } catch {}
+  const listener: LiveListener = { onEvent, ...opts };
+  liveListeners.add(listener);
+  if (!liveSource) liveSource = openLiveSource();
+  else if (liveSource.readyState === EventSource.OPEN) opts.onConnection?.(true);
+  return () => {
+    liveListeners.delete(listener);
+    if (liveListeners.size === 0 && liveSource) {
+      liveSource.close();
+      liveSource = null;
+      liveConnectionLost = false;
+    }
   };
-  for (const t of ["status", "level", "turbidity", "alert", "device"]) {
-    source.addEventListener(t, handler);
-  }
-  source.onopen = () => opts.onConnection?.(true);
-  source.onerror = () => opts.onConnection?.(false);
-  return () => source.close();
 }
