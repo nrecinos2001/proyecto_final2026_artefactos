@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -8,7 +13,7 @@ import {
   parseStatusPayload,
   parseTurbidityPayload,
 } from '../common/payload';
-import { distanceToLiters } from '../common/water-math';
+import { distanceToLiters, turbidityVerdict } from '../common/water-math';
 import { DevicesService } from '../devices/devices.service';
 import {
   Device,
@@ -25,6 +30,19 @@ import { StatusService } from './status.service';
 const LEVEL_HYSTERESIS = 2;
 /** Una referencia de turbidez se toma del promedio de las lecturas válidas recientes */
 const REFERENCE_LOOKBACK_MS = 15 * 60_000;
+
+const SIMULATION_RANGES = {
+  nivel: {
+    accepts: (value: number) => parseLevelPayload(String(value)) !== null,
+    error: (value: number) =>
+      `distancia debe estar entre 0 y 1000 cm, se recibió ${value}`,
+  },
+  turbidez: {
+    accepts: (value: number) => parseTurbidityPayload(String(value)) !== null,
+    error: (value: number) =>
+      `voltaje de turbidez debe estar entre 0 y 5 V, se recibió ${value}`,
+  },
+};
 
 /**
  * Procesa los mensajes del ESP8266: guarda lecturas, actualiza el estado de la
@@ -57,15 +75,38 @@ export class IngestionService implements OnModuleInit {
     this.mqtt.onMessage((msg) =>
       this.enqueue(msg.deviceCode, () => this.handle(msg)),
     );
+    this.mqtt.onConnect(() => this.republishLocalAlerts());
+  }
+
+  async republishLocalAlerts() {
+    const devices = await this.devices.findAll();
+    const results = await Promise.all(
+      devices.map((device) =>
+        this.enqueue(device.code, () => this.republishLocalAlert(device.id)),
+      ),
+    );
+    return results.filter(Boolean).length;
+  }
+
+  private async republishLocalAlert(deviceId: string) {
+    const device = await this.devices.findOne(deviceId);
+    if (!device.levelState) return false;
+    const latest = await this.levels.findOne({
+      where: { deviceId },
+      order: { createdAt: 'DESC' },
+    });
+    if (!latest) return false;
+    return this.publishLocalAlert(device, device.levelState, latest.percent);
   }
 
   private enqueue<T>(key: string, task: () => Promise<T>): Promise<T> {
     const prev = this.queues.get(key) ?? Promise.resolve();
     const next = prev.catch(() => undefined).then(task);
     this.queues.set(key, next);
-    void next.finally(() => {
+    const release = () => {
       if (this.queues.get(key) === next) this.queues.delete(key);
-    });
+    };
+    void next.then(release, release);
     return next;
   }
 
@@ -144,8 +185,16 @@ export class IngestionService implements OnModuleInit {
 
     if (stateChanged) await this.onLevelStateChange(device, newState, percent);
 
+    const status = await this.emitStatus(device);
+    const estimate: Partial<LevelReading> = {
+      flowLph: status.flow?.litersPerHour ?? null,
+      trend: status.flow?.trend ?? null,
+      estimateHours: status.estimate?.hours ?? null,
+      estimateMethod: status.estimate?.method ?? null,
+    };
+    await this.levels.update(reading.id, estimate);
+    Object.assign(reading, estimate);
     this.events.emit({ type: 'level', deviceId: device.id, data: reading });
-    await this.emitStatus(device);
     return reading;
   }
 
@@ -195,7 +244,7 @@ export class IngestionService implements OnModuleInit {
     state: LevelState,
     percent: number,
   ) {
-    this.mqtt.publish(device.code, 'alerta', {
+    return this.mqtt.publish(device.code, 'alerta', {
       estado: state,
       led: state === 'normal' ? 'verde' : 'rojo',
       buzzer: state === 'critico',
@@ -236,23 +285,35 @@ export class IngestionService implements OnModuleInit {
 
   /** Aviso si las últimas N lecturas válidas están por debajo del umbral */
   private async evaluateTurbidity(device: Device) {
-    const n = device.turbidityConsecutive;
+    const reference = device.turbidityReferenceVoltage;
+    if (!reference) return;
     const lastValid = await this.turbidity.find({
-      where: { deviceId: device.id, valid: true },
+      where: {
+        deviceId: device.id,
+        valid: true,
+        ...(device.lastCleanedAt
+          ? { createdAt: MoreThanOrEqual(device.lastCleanedAt) }
+          : {}),
+      },
       order: { createdAt: 'DESC' },
-      take: n,
+      take: device.turbidityConsecutive,
     });
-    if (lastValid.length < n || lastValid.some((r) => r.ratio === null)) return;
+    const verdict = turbidityVerdict(
+      lastValid.map((r) => r.voltage),
+      reference,
+      device.turbidityThresholdRatio,
+      device.turbidityConsecutive,
+    );
 
-    const threshold = device.turbidityThresholdRatio;
-    if (lastValid.every((r) => r.ratio! < threshold)) {
+    if (verdict === 'turbia') {
       await this.alerts.raise(
         device.id,
         'TURBIDEZ',
         'warning',
         `Se recomienda limpiar la cisterna ${device.name}: el agua está más turbia que la referencia de agua limpia.`,
       );
-    } else if (lastValid.every((r) => r.ratio! >= threshold)) {
+    }
+    if (verdict === 'limpia') {
       await this.alerts.resolve(device.id, ['TURBIDEZ']);
     }
   }
@@ -262,7 +323,9 @@ export class IngestionService implements OnModuleInit {
    * de las lecturas válidas recientes; si no hay, espera la próxima lectura válida.
    */
   markClean(device: Device) {
-    return this.enqueue(device.code, () => this.doMarkClean(device));
+    return this.enqueue(device.code, async () =>
+      this.doMarkClean(await this.devices.findOne(device.id)),
+    );
   }
 
   private async doMarkClean(device: Device) {
@@ -340,7 +403,10 @@ export class IngestionService implements OnModuleInit {
   }
 
   /** Simulación por HTTP (sin hardware) pasando por la misma cola que MQTT */
-  simulate(device: Device, kind: 'nivel' | 'turbidez', value: number) {
+  async simulate(device: Device, kind: 'nivel' | 'turbidez', value: number) {
+    const range = SIMULATION_RANGES[kind];
+    if (!range.accepts(value))
+      throw new BadRequestException(range.error(value));
     return this.enqueue(device.code, async () => {
       const fresh = await this.devices.findOne(device.id);
       return kind === 'nivel'

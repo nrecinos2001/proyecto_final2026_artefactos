@@ -26,6 +26,10 @@ echo $ID
 > Si todavía no existe la cisterna `demo`, publique cualquier lectura con ese
 > código (paso 2.1) y se registra sola.
 
+En Windows los comandos funcionan en Git Bash. `jq` se instala con
+`winget install jqlang.jq`. Si el backend corre en otro puerto (por ejemplo 3101
+porque el 3001 está ocupado), cambie `API` en consecuencia.
+
 ---
 
 ## 1. Actualizar datos y límites
@@ -110,7 +114,7 @@ curl -s -X PUT $API/devices/$ID/calibration -H "$J" -d '{"points": []}'
 | Variable | Uso | Por defecto |
 |---|---|---|
 | `PORT` | Puerto de la API | 3001 |
-| `FRONTEND_URL` | Orígenes permitidos por CORS (separados por coma) | http://localhost:3000 |
+| `FRONTEND_URL` | Orígenes permitidos por CORS (separados por coma). `*` acepta cualquiera, útil para la demo en red local | http://localhost:3000 |
 | `TZ` | Zona horaria para el perfil por hora | America/El_Salvador |
 | `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` | Conexión a PostgreSQL | localhost, 5433, cisterna… |
 | `DB_SYNCHRONIZE` | Crear/actualizar tablas desde las entidades | true |
@@ -119,10 +123,17 @@ curl -s -X PUT $API/devices/$ID/calibration -H "$J" -d '{"points": []}'
 | `MQTT_TOPIC_PREFIX` | Prefijo de los tópicos | cisterna |
 | `MQTT_AUTO_REGISTER` | Registrar cisternas desconocidas al recibir su primer mensaje | true |
 | `DEVICE_OFFLINE_MINUTES` | Minutos sin mensajes para marcar "sensor desconectado" | 5 |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_IDS` | Bot y chats (separados por coma) que reciben cada alerta nueva. Vacías = avisos desactivados | (vacías) |
 
-**Frontend** (`artefactos_frontend/.env.local` o `.env`): `NEXT_PUBLIC_API_URL`
-(por defecto `http://localhost:3001/api`). Next.js lee esta variable al
-compilar, así que hay que reiniciar `npm run dev` después de cambiarla.
+**Frontend** (`artefactos_frontend/.env.local` o `.env`):
+
+| Variable | Uso | Por defecto |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | URL completa de la API. Vacía: la página usa su mismo host | (vacía) |
+| `NEXT_PUBLIC_API_PORT` | Puerto de la API cuando `NEXT_PUBLIC_API_URL` está vacía | 3001 |
+
+Next.js lee estas variables al compilar, así que hay que reiniciar `npm run dev`
+(o volver a ejecutar `npm run build`) después de cambiarlas.
 
 ### 1.6 Límites fijos en el código
 
@@ -134,17 +145,21 @@ archivo indicado.
 | `LEVEL_HYSTERESIS` | 2 puntos % | `src/monitoring/ingestion.service.ts` | Para salir de "bajo" o "crítico" el nivel debe subir 2 puntos sobre el umbral (evita parpadeo) |
 | Tolerancia de nivel quieto | máx(1 % de la capacidad, 0.5 cm de altura) | `src/monitoring/ingestion.service.ts` | Cambios menores no reinician el contador de `stableMinutes` |
 | `REFERENCE_LOOKBACK_MS` | 15 min | `src/monitoring/ingestion.service.ts` | "Cisterna limpia" promedia hasta 3 lecturas válidas de los últimos 15 min |
-| `STABLE_FLOW_RATIO` | 1 % de la capacidad por hora | `src/common/water-math.ts` | Por debajo de ese caudal se considera "sin consumo" |
+| `STABLE_FLOW_RATIO` | 1 % de la capacidad por hora | `src/common/water-math.ts` | Caudal mínimo para hablar de "vaciando" o "llenando" |
+| `SLOPE_SIGNIFICANCE` | 3 errores estándar | `src/common/water-math.ts` | La pendiente también debe superar 3 veces su error estándar; así el ruido del sensor con el agua quieta se ve como "sin consumo" |
 | `PROFILE_MIN_DAYS` | 3 días | `src/common/water-math.ts` | Días de perfil necesarios antes de usar el cálculo hora por hora |
 | `EMA_ALPHA` | 0.3 | `src/common/water-math.ts` | Peso del día nuevo en C_h |
 | `MAX_ESTIMATE_HOURS` | 168 h (7 días) | `src/common/water-math.ts` | Más allá se muestra "Más de 7 días" |
-| `NOISE_RATIO` | 0.5 % de la capacidad | `src/monitoring/profile.service.ts` | Bajadas menores no cuentan como consumo en el perfil |
+| `NOISE_RATIO`, `SENSOR_RESOLUTION_CM` | máx(0.5 % de la capacidad, A x 0.3 cm) | `src/common/water-math.ts` | Subidas y bajadas menores no cuentan como consumo ni como llenado en el perfil |
+| `MAX_CARRY_GAP_MS` | 15 min | `src/common/water-math.ts` | La última lectura de una hora solo se usa como punto de partida de la siguiente si está a 15 min o menos |
+| `PROFILE_BACKFILL_DAYS` | 30 días | `src/common/water-math.ts` | Máximo de días pendientes que se procesan al arrancar |
 | Distancia válida | 0–1000 cm | `src/common/payload.ts` | Fuera de rango, el mensaje se descarta |
 | Voltaje válido | 0–5 V (`raw` 0–1023 → 0–3.3 V) | `src/common/payload.ts` | Fuera de rango, el mensaje se descarta |
 
 Tareas programadas: la revisión de desconexión corre **cada minuto**; el
-recordatorio de limpieza, **cada hora**; y el perfil del día anterior, **a las
-00:05** (y también al iniciar el backend si quedó pendiente).
+recordatorio de limpieza, **cada hora**; y el perfil, **a las 00:05** y al
+iniciar el backend, procesando todos los días pendientes desde el último
+procesado (si la laptop estuvo apagada varios días, se ponen al día todos).
 
 ### 1.7 Valores recomendados para la maqueta de 3 L
 
@@ -156,6 +171,9 @@ curl -s -X PATCH $API/devices/$ID -H "$J" -d '{
   "windowMinutes": 2, "stableMinutes": 1, "turbidityConsecutive": 3
 }' | jq '{heightCm, areaCm2, capacityLiters, windowMinutes, stableMinutes}'
 ```
+
+La ventana de 2 min necesita al menos 3 lecturas, así que en la demo el firmware
+debe publicar cada 5 s. Con lecturas cada 60 s nunca hay caudal ni tiempo restante.
 
 Mida H y A del recipiente real. Con H = 20 cm y A = 150 cm², el porcentaje
 es **5 × (20 − d)**, así que cada distancia equivale a:
@@ -268,6 +286,17 @@ st | jq '{flow, estimate}'
 constante, anote el tiempo estimado, y compárelo con el tiempo real hasta que el
 nivel cruce la reserva.
 
+Cada lectura guarda el caudal, la tendencia y las horas estimadas en ese momento,
+así que el experimento también queda registrado. Con el botón "Descargar CSV" del
+historial (o `GET $API/devices/$ID/export?tipo=nivel&from=<ISO>`) se obtiene
+`fecha_hora,distancia_cm,litros,porcentaje,caudal_lph,tendencia,horas_estimadas,metodo`.
+Para cada fila, la hora estimada de llegada es `fecha_hora + horas_estimadas`; el
+error es la diferencia con la hora real en que `porcentaje` cruzó la reserva. El
+promedio de los errores absolutos es el dato para la sección de resultados del
+documento y del artículo. `tipo=turbidez` exporta
+`fecha_hora,voltaje,raw,valida,razon` para la prueba de agua limpia contra agua
+con tierra.
+
 **Comprobar la fórmula con el ejemplo del documento** (1100 L, 660 L, reserva
 110 L, 30 L/h → 18.3 h). Está cubierto por las pruebas unitarias:
 
@@ -366,15 +395,25 @@ curl -s -X DELETE $API/devices/$ID/profile
 **Resultado esperado:**
 - `consumptionByHour` muestra los litros consumidos en cada hora con lecturas.
   Los llenados no cuentan como consumo.
-- `days` aumenta en 1 por cada día procesado que tenga lecturas.
-- Con `days` ≥ 3, `estimate.method` pasa a `perfil` y el cálculo usa C_h hora por hora.
+- `days` es la cantidad de días distintos con lecturas procesadas. Procesar el
+  mismo día otra vez reemplaza sus datos: no lo cuenta dos veces.
+- Con `days` >= 3, `estimate.method` pasa a `perfil` y el cálculo usa C_h hora
+  por hora. Las horas sin datos usan el promedio de las horas con datos.
 
-> **Cuidado:** procesar el mismo día varias veces lo cuenta varias veces en el
-> promedio. Úselo para la demostración y reinicie el perfil después.
+**Probar el modo `perfil` sin esperar 3 días:** la semilla carga tres días
+completos de historial (una lectura por minuto, con picos de consumo de 6:00 a
+7:59 y de 18:00 a 19:59) y los procesa. Lee `DB_PORT` y `PORT` del `.env` del
+backend. Si la cisterna ya tiene lecturas en esos días se detiene sin borrar nada
+(por ejemplo, para no perder las de la validación con cronómetro); con
+`--reemplazar` las sustituye.
 
-**Probar el modo `perfil` sin esperar 3 días:** genere lecturas hoy (paso 2.3),
-ejecute `recompute` de hoy tres veces para llegar a `days` = 3 y repita el paso
-2.3. `days` solo sube cuando el día procesado tiene lecturas.
+```bash
+cd artefactos_backend
+yarn semilla --code=demo --dias=3
+yarn semilla --code=demo --dias=3 --reemplazar   # borra las lecturas de esos días y las vuelve a generar
+```
+
+Después repita el paso 2.3: `estimate.method` debe ser `perfil`.
 
 ### 2.8 Recordatorio de limpieza por tiempo
 
@@ -407,13 +446,22 @@ Además, crear un código repetido responde **409**, y una cisterna inexistente,
 
 ```bash
 cd artefactos_backend
-yarn simulador --interval=2 --rate=3            # se vacía y se llena en ciclos
-yarn simulador --interval=2 --rate=3 --turbia   # además el agua se ensucia
+yarn simulador --interval=2 --rate=10 --pausa=90            # se vacía y se llena, 90 s quieto en cada extremo
+yarn simulador --interval=2 --rate=10 --pausa=90 --turbia   # además el agua se ensucia después de la primera pausa
+yarn simulador --quieto --turbia                             # nivel fijo; el agua se ensucia pasados 120 s
 ```
 
 **Resultado esperado:** el tablero recorre normal → bajo → crítico → llenando →
 normal, con sus alertas, y el simulador imprime los mensajes `alerta` que recibe
 del backend (lo mismo que verá el ESP8266).
+
+Con `--turbia` y `stableMinutes` = 1 (sección 1.7):
+
+1. Presione "Cisterna limpia" antes de la primera pausa o durante ella. La primera
+   lectura válida (con el nivel quieto 1 min) queda como referencia de agua limpia.
+2. Al terminar la primera pausa el agua empieza a ensuciarse.
+3. En la segunda pausa, tras 3 lecturas válidas bajo el 80 % de la referencia,
+   aparece el aviso TURBIDEZ.
 
 ---
 
@@ -442,8 +490,8 @@ from turbidity_readings order by id desc limit 10;
 -- Alertas activas
 select id, type, severity, message, "createdAt" from alerts where active order by id desc;
 
--- Perfil por hora
-select hour, round("avgLiters"::numeric, 3), samples from hourly_profiles order by hour;
+-- Consumo por día y hora (de aquí se calcula el perfil C_h)
+select date, hour, round(liters::numeric, 3) litros from daily_consumption order by date, hour;
 ```
 
 ## 4. Limpiar los datos de prueba
@@ -451,7 +499,7 @@ select hour, round("avgLiters"::numeric, 3), samples from hourly_profiles order 
 ```bash
 # Borrar solo las lecturas, alertas y perfil (se conservan las cisternas)
 docker exec cisterna_postgres psql -U cisterna -d cisterna -c \
-  "truncate level_readings, turbidity_readings, alerts, hourly_profiles;
+  "truncate level_readings, turbidity_readings, alerts, daily_consumption;
    update devices set \"levelState\" = null, \"levelStableSince\" = null, \"levelStableRefLiters\" = null,
                       \"profileDays\" = 0, \"profileLastDate\" = null;"
 

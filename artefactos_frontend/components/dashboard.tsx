@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, type DeviceStatus, type HourlyProfile } from "@/lib/api";
+import { api, type DeviceStatus, type FlowTrend, type HourlyProfile } from "@/lib/api";
 import {
   alertTypeLabel,
   clock,
@@ -39,6 +39,10 @@ export function Dashboard() {
   if (!status) return <DashboardSkeleton />;
 
   const { device } = status;
+  const download = (tipo: "nivel" | "turbidez") => {
+    const rangeMs = RANGES.find((r) => r.key === range)!.ms;
+    window.location.href = api.exportUrl(device.id, tipo, new Date(Date.now() - rangeMs));
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -55,19 +59,24 @@ export function Dashboard() {
       <Card
         title="Historial del nivel"
         action={
-          <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="Periodo">
-            {RANGES.map((r) => (
-              <button
-                key={r.key}
-                onClick={() => setRange(r.key)}
-                aria-pressed={range === r.key}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium ${
-                  range === r.key ? "bg-surface-2 text-foreground" : "text-muted hover:text-foreground"
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" className="py-1 text-xs" onClick={() => download("nivel")}>
+              Descargar CSV
+            </Button>
+            <div className="flex rounded-lg border border-border p-0.5" role="group" aria-label="Periodo">
+              {RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setRange(r.key)}
+                  aria-pressed={range === r.key}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                    range === r.key ? "bg-surface-2 text-foreground" : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
           </div>
         }
       >
@@ -87,7 +96,14 @@ export function Dashboard() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <ProfileCard deviceId={device.id} profileDays={device.profileDays} />
-        <Card title="Turbidez (respecto al agua limpia)">
+        <Card
+          title="Turbidez (respecto al agua limpia)"
+          action={
+            <Button variant="ghost" className="py-1 text-xs" onClick={() => download("turbidez")}>
+              Descargar CSV
+            </Button>
+          }
+        >
           <TimeChart
             label="Turbidez relativa a la referencia de agua limpia"
             height={200}
@@ -225,6 +241,12 @@ function LevelCard({ status }: { status: DeviceStatus }) {
   );
 }
 
+const ZERO_HOURS_HEADLINE: Record<FlowTrend, string> = {
+  vaciando: "En reserva",
+  llenando: "Llena",
+  estable: "Sin consumo",
+};
+
 function EstimateCard({ status }: { status: DeviceStatus }) {
   const { flow: q, estimate: e, device } = status;
   let headline = "—";
@@ -240,7 +262,7 @@ function EstimateCard({ status }: { status: DeviceStatus }) {
       caption = e.mode === "vaciando" ? "Al ritmo actual el agua alcanza para varios días." : "El llenado es muy lento.";
       tone = "good";
     } else if (e.hours !== null && e.eta) {
-      headline = e.hours === 0 ? "En reserva" : duration(e.hours);
+      headline = e.hours === 0 ? ZERO_HOURS_HEADLINE[e.mode] : duration(e.hours);
       if (e.mode === "vaciando") {
         caption =
           e.hours === 0
@@ -411,7 +433,7 @@ function ProfileCard({ deviceId, profileDays }: { deviceId: string; profileDays:
           className="py-1 text-xs"
           onClick={processToday}
           disabled={busy}
-          title="Incorpora las lecturas de hoy al perfil (útil para la demostración)"
+          title="Incorpora las lecturas de hoy al perfil; se puede repetir sin duplicar"
         >
           {busy ? "Procesando…" : "Procesar hoy"}
         </Button>

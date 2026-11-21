@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { DevicesModule } from '../devices/devices.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import {
   Alert,
-  HourlyProfile,
+  DailyConsumption,
   LevelReading,
   TurbidityReading,
 } from '../entities';
@@ -16,9 +17,10 @@ import { StatusService } from './status.service';
 @Module({
   imports: [
     DevicesModule,
+    NotificationsModule,
     TypeOrmModule.forFeature([
       Alert,
-      HourlyProfile,
+      DailyConsumption,
       LevelReading,
       TurbidityReading,
     ]),

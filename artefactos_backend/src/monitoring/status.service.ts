@@ -7,7 +7,7 @@ import {
   FlowTrend,
   estimateRemaining,
   flowTrend,
-  regressionSlopeLph,
+  regressionFit,
 } from '../common/water-math';
 import {
   Alert,
@@ -120,29 +120,30 @@ export class StatusService {
     ]);
 
     // Paso 2: caudal
-    const q = regressionSlopeLph(
+    const fit = regressionFit(
       window.map((r) => ({ t: r.createdAt.getTime(), v: r.liters })),
     );
     const flow =
-      q === null
+      fit === null
         ? null
         : {
-            litersPerHour: q,
-            trend: flowTrend(q, device.capacityLiters),
-            samples: window.length,
+            litersPerHour: fit.slopeLph,
+            trend: flowTrend(fit, device.capacityLiters),
+            samples: fit.samples,
             windowMinutes: device.windowMinutes,
           };
 
     // Paso 4: tiempo restante / tiempo de llenado
     let estimate: DeviceStatus['estimate'] = null;
-    if (latest && q !== null) {
+    if (latest && flow) {
       estimate = {
         ...estimateRemaining({
           now,
           currentLiters: latest.liters,
           capacityLiters: device.capacityLiters,
           reserveLiters: (device.capacityLiters * device.reservePercent) / 100,
-          flowLph: q,
+          flowLph: flow.litersPerHour,
+          trend: flow.trend,
           profile: await this.profiles.getUsableProfile(device),
         }),
         profileDays: device.profileDays,

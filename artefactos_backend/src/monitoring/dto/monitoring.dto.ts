@@ -30,6 +30,11 @@ export class RangeQueryDto {
   maxPoints?: number;
 }
 
+export class ExportQueryDto extends RangeQueryDto {
+  @IsIn(['nivel', 'turbidez'])
+  tipo: 'nivel' | 'turbidez';
+}
+
 export class AlertsQueryDto {
   @IsOptional()
   @IsUUID()

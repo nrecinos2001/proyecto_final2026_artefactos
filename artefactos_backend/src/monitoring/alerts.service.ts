@@ -3,12 +3,22 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Alert, AlertSeverity, AlertType } from '../entities';
 import { EventsService } from '../events/events.service';
+import { TelegramService } from '../notifications/telegram.service';
+
+const ALERT_TITLES: Record<AlertType, string> = {
+  NIVEL_BAJO: 'Nivel bajo',
+  NIVEL_CRITICO: 'Nivel crítico',
+  TURBIDEZ: 'Agua turbia',
+  LIMPIEZA_PROGRAMADA: 'Limpieza programada',
+  DESCONECTADO: 'Sensor desconectado',
+};
 
 @Injectable()
 export class AlertsService {
   constructor(
     @InjectRepository(Alert) private readonly alerts: Repository<Alert>,
     private readonly events: EventsService,
+    private readonly telegram: TelegramService,
   ) {}
 
   /** Crea la alerta si no hay otra activa del mismo tipo para esa cisterna */
@@ -26,6 +36,7 @@ export class AlertsService {
       this.alerts.create({ deviceId, type, severity, message }),
     );
     this.events.emit({ type: 'alert', deviceId, data: alert });
+    void this.telegram.send(`${ALERT_TITLES[type]}: ${message}`);
     return alert;
   }
 

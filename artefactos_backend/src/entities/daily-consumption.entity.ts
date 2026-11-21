@@ -7,10 +7,9 @@ import {
 } from 'typeorm';
 import { Device } from './device.entity';
 
-/** C_h: consumo promedio (litros) de cada hora del día, actualizado con EMA */
-@Entity('hourly_profiles')
-@Unique(['deviceId', 'hour'])
-export class HourlyProfile {
+@Entity('daily_consumption')
+@Unique(['deviceId', 'date', 'hour'])
+export class DailyConsumption {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -20,14 +19,12 @@ export class HourlyProfile {
   @ManyToOne(() => Device, { onDelete: 'CASCADE' })
   device: Device;
 
-  /** 0 a 23 (hora local) */
+  @Column('varchar', { length: 10 })
+  date: string;
+
   @Column('int')
   hour: number;
 
   @Column('double precision')
-  avgLiters: number;
-
-  /** Días con datos que han alimentado esta hora */
-  @Column('int', { default: 0 })
-  samples: number;
+  liters: number;
 }

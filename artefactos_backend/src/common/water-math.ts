@@ -56,61 +56,67 @@ export interface TimedValue {
   v: number;
 }
 
-/**
- * Paso 2: pendiente por mínimos cuadrados de volumen contra tiempo.
- * Devuelve el caudal Q en litros/hora (negativo = vaciando, positivo = llenando)
- * o null si no hay datos suficientes.
- */
-export function regressionSlopeLph(points: TimedValue[]): number | null {
-  if (points.length < 3) return null;
+export interface RegressionFit {
+  slopeLph: number;
+  stdErrLph: number;
+  samples: number;
+}
+
+export function regressionFit(points: TimedValue[]): RegressionFit | null {
+  const n = points.length;
+  if (n < 3) return null;
   const t0 = points[0].t;
-  const xs = points.map((p) => (p.t - t0) / 3_600_000); // horas
+  const xs = points.map((p) => (p.t - t0) / 3_600_000);
   const ys = points.map((p) => p.v);
-  const n = xs.length;
   const meanX = xs.reduce((s, x) => s + x, 0) / n;
   const meanY = ys.reduce((s, y) => s + y, 0) / n;
-  let num = 0;
-  let den = 0;
+  let sxy = 0;
+  let sxx = 0;
   for (let i = 0; i < n; i++) {
-    num += (xs[i] - meanX) * (ys[i] - meanY);
-    den += (xs[i] - meanX) ** 2;
+    sxy += (xs[i] - meanX) * (ys[i] - meanY);
+    sxx += (xs[i] - meanX) ** 2;
   }
-  if (den === 0) return null;
-  return num / den;
+  if (sxx === 0) return null;
+  const slopeLph = sxy / sxx;
+  const intercept = meanY - slopeLph * meanX;
+  const residualSquares = xs.reduce(
+    (s, x, i) => s + (ys[i] - intercept - slopeLph * x) ** 2,
+    0,
+  );
+  const stdErrLph = Math.sqrt(residualSquares / (n - 2) / sxx);
+  return { slopeLph, stdErrLph, samples: n };
 }
 
 /** Caudal por debajo del 1 % de la capacidad por hora se considera "sin consumo" */
 export const STABLE_FLOW_RATIO = 0.01;
+export const SLOPE_SIGNIFICANCE = 3;
 
 export type FlowTrend = 'vaciando' | 'llenando' | 'estable';
 
-export function flowTrend(q: number, capacityLiters: number): FlowTrend {
-  const threshold = capacityLiters * STABLE_FLOW_RATIO;
-  if (q <= -threshold) return 'vaciando';
-  if (q >= threshold) return 'llenando';
+export function flowTrend(
+  fit: Pick<RegressionFit, 'slopeLph' | 'stdErrLph'>,
+  capacityLiters: number,
+): FlowTrend {
+  const threshold = Math.max(
+    capacityLiters * STABLE_FLOW_RATIO,
+    SLOPE_SIGNIFICANCE * fit.stdErrLph,
+  );
+  if (fit.slopeLph <= -threshold) return 'vaciando';
+  if (fit.slopeLph >= threshold) return 'llenando';
   return 'estable';
 }
 
-/**
- * Consumo (litros) dentro de una serie de lecturas: suma de las bajadas,
- * ignorando los llenados y el ruido menor que `noiseLiters` (histéresis).
- */
-export function consumptionFromSeries(
-  values: number[],
-  noiseLiters: number,
-): number {
-  if (values.length < 2) return 0;
-  let ref = values[0];
-  let total = 0;
-  for (const v of values.slice(1)) {
-    if (v < ref - noiseLiters) {
-      total += ref - v;
-      ref = v;
-    } else if (v > ref) {
-      ref = v; // está entrando agua: se mueve la referencia sin contar consumo
-    }
-  }
-  return total;
+export const NOISE_RATIO = 0.005;
+export const SENSOR_RESOLUTION_CM = 0.3;
+
+export function noiseLitersFor(device: {
+  capacityLiters: number;
+  areaCm2: number;
+}): number {
+  return Math.max(
+    device.capacityLiters * NOISE_RATIO,
+    (device.areaCm2 * SENSOR_RESOLUTION_CM) / 1000,
+  );
 }
 
 /** Paso 3: promedio móvil exponencial C_h = 0.3 x hoy + 0.7 x anterior */
@@ -119,6 +125,83 @@ export const EMA_ALPHA = 0.3;
 export function emaUpdate(previous: number | null, today: number): number {
   if (previous === null) return today;
   return EMA_ALPHA * today + (1 - EMA_ALPHA) * previous;
+}
+
+export interface DayHourConsumption {
+  date: string;
+  hour: number;
+  liters: number;
+}
+
+export interface HourProfile {
+  hour: number;
+  avgLiters: number;
+  samples: number;
+}
+
+export function profileFromDays(rows: DayHourConsumption[]): {
+  days: number;
+  hours: HourProfile[];
+} {
+  const hours: HourProfile[] = Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    avgLiters: 0,
+    samples: 0,
+  }));
+  const ordered = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+  for (const row of ordered) {
+    const slot = hours[row.hour];
+    slot.avgLiters = emaUpdate(
+      slot.samples > 0 ? slot.avgLiters : null,
+      row.liters,
+    );
+    slot.samples += 1;
+  }
+  return { days: new Set(rows.map((r) => r.date)).size, hours };
+}
+
+export function fillMissingHours(hours: HourProfile[]): number[] {
+  const observed = hours.filter((h) => h.samples > 0);
+  const fallback = observed.length
+    ? observed.reduce((s, h) => s + h.avgLiters, 0) / observed.length
+    : 0;
+  return hours.map((h) => (h.samples > 0 ? h.avgLiters : fallback));
+}
+
+export interface TimedLiters {
+  liters: number;
+  at: Date;
+}
+
+export const MAX_CARRY_GAP_MS = 15 * 60_000;
+
+export function hourlyConsumption(
+  readings: TimedLiters[],
+  previous: TimedLiters | null,
+  noiseLiters: number,
+): Map<number, number> {
+  const consumption = new Map<number, number>();
+  const ordered = [...readings].sort((a, b) => a.at.getTime() - b.at.getTime());
+  let last = previous;
+  let reference = previous?.liters ?? 0;
+  for (const reading of ordered) {
+    const hour = reading.at.getHours();
+    const booked = consumption.get(hour) ?? 0;
+    const gap =
+      last === null ||
+      reading.at.getTime() - last.at.getTime() > MAX_CARRY_GAP_MS;
+    if (gap || reading.liters > reference + noiseLiters) {
+      reference = reading.liters;
+      consumption.set(hour, booked);
+    } else if (reading.liters < reference - noiseLiters) {
+      consumption.set(hour, booked + reference - reading.liters);
+      reference = reading.liters;
+    } else {
+      consumption.set(hour, booked);
+    }
+    last = reading;
+  }
+  return consumption;
 }
 
 /** Días mínimos de perfil antes de usarlo (antes se usa la fórmula directa) */
@@ -133,6 +216,7 @@ export interface EstimateInput {
   reserveLiters: number;
   /** Q del paso 2, L/h, con signo */
   flowLph: number;
+  trend: FlowTrend;
   /** C_h por hora local 0..23, o null si todavía no hay perfil */
   profile: number[] | null;
 }
@@ -163,9 +247,9 @@ export function estimateRemaining(input: EstimateInput): Estimate {
     capacityLiters,
     reserveLiters,
     flowLph,
+    trend: mode,
     profile,
   } = input;
-  const mode = flowTrend(flowLph, capacityLiters);
   const result = (
     hours: number | null,
     method: Estimate['method'],
@@ -236,4 +320,52 @@ export function localDateKey(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+export const PROFILE_BACKFILL_DAYS = 30;
+
+function dateFromKey(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+export function pendingDateKeys(
+  lastDate: string | null,
+  firstReadingDate: string | null,
+  today: Date,
+): string[] {
+  const startKey = lastDate ?? firstReadingDate;
+  if (startKey === null) return [];
+  const cursor = dateFromKey(startKey);
+  if (lastDate !== null) cursor.setDate(cursor.getDate() + 1);
+  const earliest = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate() - PROFILE_BACKFILL_DAYS,
+  );
+  if (cursor < earliest) cursor.setTime(earliest.getTime());
+  const todayKey = localDateKey(today);
+  const keys: string[] = [];
+  while (localDateKey(cursor) < todayKey) {
+    keys.push(localDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return keys;
+}
+
+export type TurbidityVerdict = 'turbia' | 'limpia';
+
+export function turbidityVerdict(
+  voltages: number[],
+  referenceVoltage: number,
+  thresholdRatio: number,
+  required: number,
+): TurbidityVerdict | null {
+  if (voltages.length < required) return null;
+  const ratios = voltages
+    .slice(0, required)
+    .map((voltage) => voltage / referenceVoltage);
+  if (ratios.every((ratio) => ratio < thresholdRatio)) return 'turbia';
+  if (ratios.every((ratio) => ratio >= thresholdRatio)) return 'limpia';
+  return null;
 }
